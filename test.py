@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-14 14:34:01
+# @Last Modified time: 2018-10-15 15:51:42
 import sys
 import torch
 import visdom
@@ -16,149 +16,90 @@ import torchvision.models as models
 from torch.autograd import Variable
 from torch.utils import data
 from tqdm import tqdm
-
+import torch.nn.functional as F
 from cmf.models import get_model
 from cmf.loader import get_loader, get_data_path
-from cmf.metrics import runningScore
 from cmf.loss import *
-from cmf.augmentations import *
 import os
 
 def train(args):
-    #torch.backends.cudnn.benchmark=True
+    torch.backends.cudnn.benchmark=True
     # Setup Augmentations
-    data_aug = Compose([RandomRotate(10),
-                        RandomHorizontallyFlip()])
     loss_rec=[0]
     best_error=2
     # Setup Dataloader
-    data_loader = get_loader(args.dataset)
     data_path = get_data_path(args.dataset)
-    t_loader = data_loader(data_path, is_transform=True,
-                           split='train', img_size=(args.img_rows, args.img_cols))
+    data_loader = get_loader(args.dataset)
     v_loader = data_loader(data_path, is_transform=True,
                            split='test', img_size=(args.img_rows, args.img_cols))
-
-    n_classes = t_loader.n_classes
-    trainloader = data.DataLoader(
-        t_loader, batch_size=args.batch_size, num_workers=0, shuffle=False)
     valloader = data.DataLoader(
-        v_loader, batch_size=args.batch_size, num_workers=0)
-
-
+        v_loader, batch_size=args.batch_size, num_workers=4, shuffle=False)
     # Setup Model
     model = get_model(args.arch)
-    # parameters=model.named_parameters()
-    # for name,param in parameters:
-    #     print(name)
-    #     print(param.grad)
-    # exit()
 
-    # model = torch.nn.DataParallel(
-    #     model, device_ids=range(torch.cuda.device_count()))
+    model = torch.nn.DataParallel(
+        model, device_ids=range(torch.cuda.device_count()))
     #model = torch.nn.DataParallel(model, device_ids=[0])
-    #model.cuda()
+    model.cuda()
 
-    # Check if model has custom optimizer / loss
-    # modify to adam, modify the learning rate
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=args.l_rate,weight_decay=5e-4,betas=(0.9,0.999),amsgrad=True)
-    # optimizer = torch.optim.SGD(
-    #     model.parameters(), lr=args.l_rate,momentum=0.90, weight_decay=5e-5)
 
-    loss_fn = l1
-    trained=0
-    scale=100
-
-    if args.resume is not None:
-        if os.path.isfile(args.resume):
-            print("Loading model and optimizer from checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume)
-            #model_dict=model.state_dict()  
-            #opt=torch.load('/home/lidong/Documents/cmf/cmf/exp1/l2/sgd/log/83/rsnet_nyu_best_model.pkl')
-            model.load_state_dict(checkpoint['model_state'])
-            optimizer.load_state_dict(checkpoint['optimizer_state'])
-            #opt=None
-            print("Loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
-            trained=checkpoint['epoch']
-    error=0
-
-    #best_error=5
-    # it should be range(checkpoint[''epoch],args.n_epoch)
-    for epoch in range(trained, trained+1):
-    #for epoch in range(0, args.n_epoch):
-        
+    saved_model_path=r'/home/lidong/Documents/CMF/trained/bilinear/'
+    saved_model_dir=os.listdir(saved_model_path)
+    saved_model_dir.sort()
+    for s in range(len(saved_model_dir)):
+        print("Loading model and optimizer from checkpoint '{}'".format(os.path.join(saved_model_path,saved_model_dir[s])))
+        checkpoint = torch.load(os.path.join(saved_model_path,saved_model_dir[s]))
+        model.load_state_dict(checkpoint['model_state'])
+        print("Loaded checkpoint '{}' (epoch {})"
+              .format(os.path.join(saved_model_path,saved_model_dir[s]), checkpoint['epoch']))
+        epoch=checkpoint['epoch']
+        error=0
+        error_rec=[]
+           
         #trained
         print('training!')
-        model.train()
-        for i, (left, right,disparity,P,pre_match,pre2) in enumerate(valloader):
+        model.eval()
+        for i, (left, right,disparity,image) in enumerate(valloader):
             with torch.no_grad():
-                #print(left.shape)
                 start_time=time.time()
-                left = left.cuda(0)
-                right = right.cuda(0)
-                disparity = disparity.cuda(0)
-                P = P.cuda(1)
-                pre_match=pre_match.cuda(1)
-                pre2=pre2.cuda(1)
-
-                optimizer.zero_grad()
+                left = left.cuda()
+                right = right.cuda()
+                disparity = disparity.cuda()[:540,...]
+                mask = (disparity < 192) & (disparity >= 0)
+                mask.detach_()
                 #print(P.shape)
-                outputs = model(left,right,P=P,pre=pre_match,pre2=pre2)
-
-                #outputs=outputs
-                loss = l1(input=outputs, target=disparity,mask=P)
-
-                print(time.time()-start_time)
-                torch.cuda.empty_cache()
-
-            #     pre = outputs.data.cpu().numpy().astype('float32')
-            #     pre = pre[0, :, :, :]
-            #     #pre = np.argmax(pre, 0)
-            #     pre = (np.reshape(pre, [480, 640]).astype('float32')-np.min(pre))/(np.max(pre)-np.min(pre))
-            #     #pre = pre/np.max(pre)
-            #     # print(type(pre[0,0]))
-            #     vis.image(
-            #         pre,
-            #         opts=dict(title='predict!', caption='predict.'),
-            #         win=pre_window,
-            #     )
-            #     ground=disparity.data.cpu().numpy().astype('float32')
-            #     #print(ground.shape)
-            #     ground = ground[0, :, :]
-            #     ground = (np.reshape(ground, [480, 640]).astype('float32')-np.min(ground))/(np.max(ground)-np.min(ground))
-            #     vis.image(
-            #         ground,
-            #         opts=dict(title='ground!', caption='ground.'),
-            #         win=ground_window,
-            #     )
-            
-            print("data [%d/812/%d/%d] Loss: %.4f" % (i, epoch, args.n_epoch,loss.item()))
-            error+=loss.item()
-    print("error is %.4f"%(error/812))
+                output1, output2, output3 = model(left,right)
+                output3 = torch.squeeze(output3, 1)[:540,...]
+                loss=torch.mean(torch.abs(output3[mask] - disparity[mask]))
+                #loss = F.l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
+                error_rec.append(loss.item())
+            print(time.time()-start_time)
+            print("data [%d/1062/%d/%d] Loss: %.4f" % (i, epoch, args.n_epoch,loss.item()))
+            #break
+        error=np.mean(error_rec)
+        np.save('/home/lidong/Documents/CMF/test/bilinear/error:%.4f,epoch:%d.npy'%(error,epoch),error_rec)
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--arch', nargs='?', type=str, default='rstereo',
+    parser.add_argument('--arch', nargs='?', type=str, default='bilinear_cmf',
                         help='Architecture to use [\'region support network\']')
-    parser.add_argument('--dataset', nargs='?', type=str, default='sceneflow',
+    parser.add_argument('--dataset', nargs='?', type=str, default='flying3d',
                         help='Dataset to use [\'sceneflow and kitti etc\']')
-    parser.add_argument('--img_rows', nargs='?', type=int, default=480,
+    parser.add_argument('--img_rows', nargs='?', type=int, default=540,
                         help='Height of the input image')
-    parser.add_argument('--img_cols', nargs='?', type=int, default=640,
+    parser.add_argument('--img_cols', nargs='?', type=int, default=960,
                         help='Width of the input image')
-    parser.add_argument('--n_epoch', nargs='?', type=int, default=1,
+    parser.add_argument('--n_epoch', nargs='?', type=int, default=4000,
                         help='# of the epochs')
-    parser.add_argument('--batch_size', nargs='?', type=int, default=1,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=4,
                         help='Batch Size')
     parser.add_argument('--l_rate', nargs='?', type=float, default=1e-3,
                         help='Learning Rate')
     parser.add_argument('--feature_scale', nargs='?', type=int, default=1,
                         help='Divider for # of features to use')
-    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/PSSM/14_rstereo_sceneflow_best_model.pkl',
+    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/1_cmf_flying3d_best_model.pkl',
                         help='Path to previous saved model to restart from /home/lidong/Documents/PSSM/rstereo_sceneflow_best_model.pkl')
     parser.add_argument('--visdom', nargs='?', type=bool, default=True,
                         help='Show visualization(s) on visdom | False by  default')

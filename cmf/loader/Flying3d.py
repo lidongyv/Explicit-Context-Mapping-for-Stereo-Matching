@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-03-19 13:33:07
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-14 22:00:32
+# @Last Modified time: 2018-10-15 13:15:36
 
 import os
 import torch
@@ -48,11 +48,20 @@ class Flying3d(data.Dataset):
 
         data=np.load(os.path.join(self.datapath,self.split,self.files[index]))
         #print(os.path.join(self.datapath,self.split,self.files[index]))
-        h,w = data.shape[0],data.shape[1]
-        th, tw = 256, 512
-        x1 = random.randint(0, h - th)
-        y1 = random.randint(0, w - tw)
-        data=data[x1:x1+th,y1:y1+tw,:]
+        if self.split=='train':
+            h,w = data.shape[0],data.shape[1]
+            th, tw = 256, 512
+            x1 = random.randint(0, h - th)
+            y1 = random.randint(0, w - tw)
+            data=data[x1:x1+th,y1:y1+tw,:]
+        else:
+            h,w = data.shape[0],data.shape[1]
+            padding=np.zeros([4,data.shape[1],data.shape[2]])
+            th, tw = 540, 960
+            x1 = 0
+            y1 = 0
+            data=data[x1:th,y1:tw,:]
+            data=np.concatenate([data,padding],0)
         #data=data[:540,:960,:]
         left=data[...,0:3]/255
         #

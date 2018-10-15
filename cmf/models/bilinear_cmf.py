@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-14 22:58:05
+# @Last Modified time: 2018-10-15 15:52:36
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -330,13 +330,13 @@ class hourglass(nn.Module):
         return out, pre, post
 
 
-class cmf(nn.Module):
+class bilinear_cmf(nn.Module):
 
 
     def __init__(self, 
                 maxdisp=192):
 
-        super(cmf, self).__init__()
+        super(bilinear_cmf, self).__init__()
         self.maxdisp = maxdisp
         self.feature_extraction = feature_extraction()
 
@@ -431,20 +431,32 @@ class cmf(nn.Module):
         cost2 = self.classif2(out2) + cost1
         cost3 = self.classif3(out3) + cost2
 
+        #if self.training:
+        cost1 = F.upsample(
+            cost1,
+            [self.maxdisp, left.size()[2],
+             left.size()[3]],
+            mode='trilinear')
+        cost2 = F.upsample(
+            cost2,
+            [self.maxdisp, left.size()[2],
+             left.size()[3]],
+            mode='trilinear')
         cost1 = torch.squeeze(cost1, 1)
         pred1 = F.softmax(cost1, dim=1)
-        pred1 = disparityregression(self.maxdisp // 4)(pred1)
-        pred1 = self.srr(pred1, left, refimg_fea, half)
+        pred1 = disparityregression(self.maxdisp)(pred1)
 
         cost2 = torch.squeeze(cost2, 1)
         pred2 = F.softmax(cost2, dim=1)
-        pred2 = disparityregression(self.maxdisp // 4)(pred2)
-        pred2 = self.srr(pred2, left, refimg_fea, half)
+        pred2 = disparityregression(self.maxdisp)(pred2)
 
+        cost3 = F.upsample(
+            cost3, [self.maxdisp, left.size()[2],
+                    left.size()[3]],
+            mode='trilinear')
         cost3 = torch.squeeze(cost3, 1)
         pred3 = F.softmax(cost3, dim=1)
-        pred3 = disparityregression(self.maxdisp // 4)(pred3)
-        pred3 = self.srr(pred3, left, refimg_fea, half)
+        pred3 = disparityregression(self.maxdisp)(pred3)
         return pred1, pred2, pred3
 
 

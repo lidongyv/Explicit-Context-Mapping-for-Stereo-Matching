@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-14 22:58:05
+# @Last Modified time: 2018-10-15 12:27:51
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -224,44 +224,7 @@ class feature_extraction(nn.Module):
         output_feature = self.lastconv(output_feature)
 
         return output_feature, output_rt
-class super_resolution_refinement(nn.Module):
-    def __init__(self, dis_planes, twice_times):
-        super().__init__()
-        self.twice_times = twice_times
-        self.conv1 = nn.Sequential(
-            convbn(1, dis_planes * 2, 3, 1, 1, 1), nn.ReLU(inplace=True))
-        self.deconv_module_list = nn.ModuleList()
-        for _ in range(twice_times):
-            deconv_i = nn.Sequential(
-                nn.ConvTranspose2d(dis_planes * 3, dis_planes * 2, 3, 2, 1, 1),
-                nn.GroupNorm(group_norm_group_num, dis_planes * 2),
-                nn.ReLU(inplace=True))
-            self.deconv_module_list.append(deconv_i)
 
-        self.rgb_fea = nn.Sequential(
-            convbn(3, dis_planes, 3, 1, 1, 1),
-            nn.ReLU(inplace=True),
-            convbn(dis_planes, dis_planes, 3, 1, 1, 1),
-            nn.ReLU(inplace=True),
-            convbn(dis_planes, dis_planes, 3, 1, 1, 1),
-            nn.ReLU(inplace=True))
-
-        self.conv2 = nn.Sequential(
-            convbn(dis_planes * 3, dis_planes * 3, 3, 1, 1, 1),
-            nn.ReLU(inplace=True))
-
-        self.conv_out = nn.Conv2d(dis_planes * 3, 1, 3, 1, 1)
-        self.crap=nn.ReLU(inplace=True)
-    def forward(self, low_resolution_disparity, rgb, *rgb_zoom_feature):
-        assert self.twice_times == len(rgb_zoom_feature)
-        x = self.conv1(torch.unsqueeze(low_resolution_disparity, dim=1))
-        for i, deconv_i in enumerate(self.deconv_module_list):
-            x = deconv_i(torch.cat([x, rgb_zoom_feature[i]], dim=1))
-
-        x = torch.cat([x, self.rgb_fea(rgb)], dim=1)
-        x = self.conv_out(self.conv2(x))
-        x=  self.crap(x)
-        return x
 
 
 class hourglass(nn.Module):
@@ -302,7 +265,7 @@ class hourglass(nn.Module):
                 inplanes,
                 kernel_size=3,
                 padding=1,
-                output_padding=1,
+                output_padding=(1,1,1),
                 stride=2,
                 bias=False), nn.GroupNorm(group_norm_group_num,
                                           inplanes))  # +x
@@ -330,13 +293,24 @@ class hourglass(nn.Module):
         return out, pre, post
 
 
-class cmf(nn.Module):
+class context_mapping(nn.Module):
+    def __init__(self, dis_planes, twice_times):
+        super(context_mapping,self).__init__()
+
+
+    def forward(self, lr_feature, hr_feature):
+        scale=hr_feature.shape[-1]/lr_feature.shape[-1]
+        local_matrix=distance_matrix[scale]
+        
+        return x
+
+class cmfsm(nn.Module):
 
 
     def __init__(self, 
                 maxdisp=192):
 
-        super(cmf, self).__init__()
+        super(cmfsm, self).__init__()
         self.maxdisp = maxdisp
         self.feature_extraction = feature_extraction()
 
@@ -353,26 +327,13 @@ class cmf(nn.Module):
 
         self.dres2 = hourglass(32)
 
-        self.dres3 = hourglass(32)
-
-        self.dres4 = hourglass(32)
 
         self.classif1 = nn.Sequential(
             convbn_3d(32, 32, 3, 1, 1),
             nn.ReLU(inplace=True),
             nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
 
-        self.classif2 = nn.Sequential(
-            convbn_3d(32, 32, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
 
-        self.classif3 = nn.Sequential(
-            convbn_3d(32, 32, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
-
-        self.srr = super_resolution_refinement(32, 2)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -416,9 +377,7 @@ class cmf(nn.Module):
 
         cost0 = self.dres0(cost)
         cost0 = self.dres1(cost0) + cost0
-        #print(cost0.shape)
         out1, pre1, post1 = self.dres2(cost0, None, None)
-        #print(out1.shape)
         out1 = out1 + cost0
 
         out2, pre2, post2 = self.dres3(out1, pre1, post1)
@@ -426,26 +385,24 @@ class cmf(nn.Module):
 
         out3, pre3, post3 = self.dres4(out2, pre1, post2)
         out3 = out3 + cost0
+        #cost1 = self.classif1(out1)
+
+        # cost1 = torch.squeeze(cost1, 1)
+        # pred1 = F.softmax(cost1, dim=1)
+        # pred1 = disparityregression(self.maxdisp // 4)(pred1)
+        # #pred1 = self.srr(pred1, left, refimg_fea, half)
+        # pred1 = self.srr(pred1, left, refimg_fea, half)
+
 
         cost1 = self.classif1(out1)
         cost2 = self.classif2(out2) + cost1
         cost3 = self.classif3(out3) + cost2
 
-        cost1 = torch.squeeze(cost1, 1)
-        pred1 = F.softmax(cost1, dim=1)
-        pred1 = disparityregression(self.maxdisp // 4)(pred1)
-        pred1 = self.srr(pred1, left, refimg_fea, half)
-
-        cost2 = torch.squeeze(cost2, 1)
-        pred2 = F.softmax(cost2, dim=1)
-        pred2 = disparityregression(self.maxdisp // 4)(pred2)
-        pred2 = self.srr(pred2, left, refimg_fea, half)
-
         cost3 = torch.squeeze(cost3, 1)
         pred3 = F.softmax(cost3, dim=1)
         pred3 = disparityregression(self.maxdisp // 4)(pred3)
         pred3 = self.srr(pred3, left, refimg_fea, half)
-        return pred1, pred2, pred3
+        return pred3
 
 
 

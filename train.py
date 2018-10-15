@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-14 21:55:36
+# @Last Modified time: 2018-10-15 13:52:53
 import sys
 import torch
 import visdom
@@ -23,7 +23,7 @@ from cmf.loss import *
 import os
 
 def train(args):
-    #torch.backends.cudnn.benchmark=True
+    torch.backends.cudnn.benchmark=True
     # Setup Augmentations
     loss_rec=[0]
     best_error=2
@@ -36,7 +36,7 @@ def train(args):
                            split='test', img_size=(args.img_rows, args.img_cols))
 
     trainloader = data.DataLoader(
-        t_loader, batch_size=args.batch_size, num_workers=4, shuffle=False)
+        t_loader, batch_size=args.batch_size, num_workers=4, shuffle=True)
     valloader = data.DataLoader(
         v_loader, batch_size=args.batch_size, num_workers=4)
 
@@ -99,7 +99,7 @@ def train(args):
             #model_dict=model.state_dict()  
             #opt=torch.load('/home/lidong/Documents/cmf/cmf/exp1/l2/sgd/log/83/rsnet_nyu_best_model.pkl')
             model.load_state_dict(checkpoint['model_state'])
-            optimizer.load_state_dict(checkpoint['optimizer_state'])
+            #optimizer.load_state_dict(checkpoint['optimizer_state'])
             #opt=None
             print("Loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
@@ -109,10 +109,10 @@ def train(args):
     else:
         print("No checkpoint found at '{}'".format(args.resume))
         print('Initialize from resnet34!')
-        resnet34=torch.load('/home/lidong/Documents/CMF/checkpoint_14.tar')
+        resnet34=torch.load('/home/lidong/Documents/CMF/12_cmf_flying3d_best_model.pkl')
         #model.load_state_dict(resnet34['state_dict'])
         model_dict=model.state_dict()            
-        pre_dict={k: v for k, v in resnet34['state_dict'].items() if k in model_dict}
+        pre_dict={k: v for k, v in resnet34['model_state'].items() if k in model_dict}
         # print(pre_dict)
         # exit()
         # for k,v in resnet34['state_dict'].items():
@@ -164,55 +164,48 @@ def train(args):
             
             #torch.cuda.empty_cache()
             #print(loss.item)
-            if args.visdom :
+            if args.visdom ==True:
                 vis.line(
                     X=torch.ones(1).cpu() * i+torch.ones(1).cpu() *(epoch-trained)*5457,
                     Y=loss.item()*torch.ones(1).cpu(),
                     win=loss_window,
                     update='append')
-                #print(output3.shape)
-                pre = output3.data.cpu().numpy().astype('float32')
-                pre = pre[0,:,:]
-                #print(np.max(pre))
-                #print(pre.shape)
-                pre = np.reshape(pre, [256,512]).astype('float32')/255
-                vis.image(
-                    pre,
-                    opts=dict(title='predict!', caption='predict.'),
-                    win=pre_window,
-                )
+                #print(torch.max(output3).item(),torch.min(output3).item())
+                if i%15==0:
+                    #print(output3.shape)
+                    pre = output3.data.cpu().numpy().astype('float32')
+                    pre = pre[0,:,:]
+                    #print(np.max(pre))
+                    #print(pre.shape)
+                    pre = np.reshape(pre, [256,512]).astype('float32')
+                    vis.image(
+                        pre,
+                        opts=dict(title='predict!', caption='predict.'),
+                        win=pre_window,
+                    )
 
-                ground=disparity.data.cpu().numpy().astype('float32')
-                ground = ground[0, :, :]
-                ground = np.reshape(ground, [256,512]).astype('float32')/255
-                vis.image(
-                    ground,
-                    opts=dict(title='ground!', caption='ground.'),
-                    win=ground_window,
-                )
-                image=image.data.cpu().numpy().astype('float32')
-                image = image[0,...]
-                #image=image[0,...]
-                #print(image.shape,np.min(image))
-                image = np.reshape(image, [3,256,512]).astype('float32')
-                vis.image(
-                    image,
-                    opts=dict(title='image!', caption='image.'),
-                    win=image_window,
-                )            
+                    ground=disparity.data.cpu().numpy().astype('float32')
+                    ground = ground[0, :, :]
+                    ground = np.reshape(ground, [256,512]).astype('float32')
+                    vis.image(
+                        ground,
+                        opts=dict(title='ground!', caption='ground.'),
+                        win=ground_window,
+                    )
+                    image=image.data.cpu().numpy().astype('float32')
+                    image = image[0,...]
+                    #image=image[0,...]
+                    #print(image.shape,np.min(image))
+                    image = np.reshape(image, [3,256,512]).astype('float32')
+                    vis.image(
+                        image,
+                        opts=dict(title='image!', caption='image.'),
+                        win=image_window,
+                    )            
             loss_rec.append(loss.item())
             print(time.time()-start_time)
             print("data [%d/5457/%d/%d] Loss: %.4f" % (i, epoch, args.n_epoch,loss.item()))
-            #break
-            # if i>2:
-            #     if loss_rec[-1]-loss_rec[-2]>5:
-            #         state = {'epoch': epoch+1,
-            #              'model_state': model.state_dict(),
-            #              'optimizer_state': optimizer.state_dict(),
-            #              }
-            #         torch.save(state, "{}_{}_best_model.pkl".format(
-            #             args.arch, args.dataset))
-            #         exit()
+
         state = {'epoch': epoch+1,
          'model_state': model.state_dict(),
          'optimizer_state': optimizer.state_dict(),
@@ -225,7 +218,7 @@ def train(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--arch', nargs='?', type=str, default='cmf',
+    parser.add_argument('--arch', nargs='?', type=str, default='bilinear_cmf',
                         help='Architecture to use [\'region support network\']')
     parser.add_argument('--dataset', nargs='?', type=str, default='flying3d',
                         help='Dataset to use [\'sceneflow and kitti etc\']')
@@ -241,7 +234,7 @@ if __name__ == '__main__':
                         help='Learning Rate')
     parser.add_argument('--feature_scale', nargs='?', type=int, default=1,
                         help='Divider for # of features to use')
-    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/0_cmf_flying3d_best_model.pkl',
+    parser.add_argument('--resume', nargs='?', type=str, default=None,
                         help='Path to previous saved model to restart from /home/lidong/Documents/PSSM/rstereo_sceneflow_best_model.pkl')
     parser.add_argument('--visdom', nargs='?', type=bool, default=True,
                         help='Show visualization(s) on visdom | False by  default')
