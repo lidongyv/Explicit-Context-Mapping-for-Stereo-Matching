@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-15 15:52:36
+# @Last Modified time: 2018-10-15 21:20:14
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -127,14 +127,19 @@ class feature_extraction(nn.Module):
     def __init__(self):
         super(feature_extraction, self).__init__()
         self.inplanes = 32
+
         self.firstconv = nn.Sequential(
-            convbn(3, 32, 3, 2, 1, 1),
+            convbn(3, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True))
-
+        self.secondconv = nn.Sequential(
+            convbn(32, 32, 3, 2, 1, 1),
+            nn.ReLU(inplace=True),
+            convbn(32, 32, 3, 1, 1, 1),
+            nn.ReLU(inplace=True))
         self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
         self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
         self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 1)
@@ -188,7 +193,10 @@ class feature_extraction(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        output = self.firstconv(x)
+        output_all = self.firstconv(x)
+        #print(output_all.shape)
+        output=self.secondconv(output_all)
+        #print(output.shape)
         output_rt = self.layer1(output)
         output_raw = self.layer2(output_rt)
         output = self.layer3(output_raw)
@@ -223,7 +231,7 @@ class feature_extraction(nn.Module):
              output_branch2, output_branch1), 1)
         output_feature = self.lastconv(output_feature)
 
-        return output_feature, output_rt
+        return output_feature, output_rt,output_all
 class super_resolution_refinement(nn.Module):
     def __init__(self, dis_planes, twice_times):
         super().__init__()
@@ -393,8 +401,8 @@ class bilinear_cmf(nn.Module):
 
     def forward(self, left, right):
 
-        refimg_fea, half = self.feature_extraction(left)
-        targetimg_fea, _ = self.feature_extraction(right)
+        refimg_fea, half,all = self.feature_extraction(left)
+        targetimg_fea, _,_ = self.feature_extraction(right)
 
         # matching
         cost = Variable(
@@ -432,16 +440,16 @@ class bilinear_cmf(nn.Module):
         cost3 = self.classif3(out3) + cost2
 
         #if self.training:
-        cost1 = F.upsample(
+        cost1 = F.interpolate(
             cost1,
             [self.maxdisp, left.size()[2],
              left.size()[3]],
-            mode='trilinear')
-        cost2 = F.upsample(
+            mode='trilinear',align_corners=False)
+        cost2 = F.interpolate(
             cost2,
             [self.maxdisp, left.size()[2],
              left.size()[3]],
-            mode='trilinear')
+            mode='trilinear',align_corners=False)
         cost1 = torch.squeeze(cost1, 1)
         pred1 = F.softmax(cost1, dim=1)
         pred1 = disparityregression(self.maxdisp)(pred1)
@@ -450,10 +458,10 @@ class bilinear_cmf(nn.Module):
         pred2 = F.softmax(cost2, dim=1)
         pred2 = disparityregression(self.maxdisp)(pred2)
 
-        cost3 = F.upsample(
+        cost3 = F.interpolate(
             cost3, [self.maxdisp, left.size()[2],
                     left.size()[3]],
-            mode='trilinear')
+            mode='trilinear',align_corners=False)
         cost3 = torch.squeeze(cost3, 1)
         pred3 = F.softmax(cost3, dim=1)
         pred3 = disparityregression(self.maxdisp)(pred3)

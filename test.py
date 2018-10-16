@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-15 15:51:42
+# @Last Modified time: 2018-10-16 14:30:52
 import sys
 import torch
 import visdom
@@ -43,7 +43,7 @@ def train(args):
     model.cuda()
 
 
-    saved_model_path=r'/home/lidong/Documents/CMF/trained/bilinear/'
+    saved_model_path=r'/home/lidong/Documents/CMF/trained/learning-fuse'
     saved_model_dir=os.listdir(saved_model_path)
     saved_model_dir.sort()
     for s in range(len(saved_model_dir)):
@@ -68,7 +68,8 @@ def train(args):
                 mask = (disparity < 192) & (disparity >= 0)
                 mask.detach_()
                 #print(P.shape)
-                output1, output2, output3 = model(left,right)
+                #output1, output2, output3 = model(left,right)
+                output3 = model(left,right)
                 output3 = torch.squeeze(output3, 1)[:540,...]
                 loss=torch.mean(torch.abs(output3[mask] - disparity[mask]))
                 #loss = F.l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
@@ -77,13 +78,13 @@ def train(args):
             print("data [%d/1062/%d/%d] Loss: %.4f" % (i, epoch, args.n_epoch,loss.item()))
             #break
         error=np.mean(error_rec)
-        np.save('/home/lidong/Documents/CMF/test/bilinear/error:%.4f,epoch:%d.npy'%(error,epoch),error_rec)
+        np.save('/home/lidong/Documents/CMF/test/learning-fuse/error:%.4f,epoch:%d.npy'%(error,epoch),error_rec)
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--arch', nargs='?', type=str, default='bilinear_cmf',
+    parser.add_argument('--arch', nargs='?', type=str, default='cmfsm',
                         help='Architecture to use [\'region support network\']')
     parser.add_argument('--dataset', nargs='?', type=str, default='flying3d',
                         help='Dataset to use [\'sceneflow and kitti etc\']')

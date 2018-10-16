@@ -1,0 +1,4 @@
+test the four related mapping
+train the bilinear as baseline
+test the concatenation of geometry matrix
+test lower resolution

@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-15 12:27:51
+# @Last Modified time: 2018-10-16 15:46:55
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -128,9 +128,14 @@ class feature_extraction(nn.Module):
         super(feature_extraction, self).__init__()
         self.inplanes = 32
         self.firstconv = nn.Sequential(
-            convbn(3, 32, 3, 2, 1, 1),
+            convbn(3, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
+            nn.ReLU(inplace=True),
+            convbn(32, 32, 3, 1, 1, 1),
+            nn.ReLU(inplace=True))
+        self.secondconv = nn.Sequential(
+            convbn(32, 32, 3, 2, 1, 1),
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True))
@@ -188,7 +193,8 @@ class feature_extraction(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        output = self.firstconv(x)
+        output_all = self.firstconv(x)
+        output=self.secondconv(output_all)
         output_rt = self.layer1(output)
         output_raw = self.layer2(output_rt)
         output = self.layer3(output_raw)
@@ -223,7 +229,7 @@ class feature_extraction(nn.Module):
              output_branch2, output_branch1), 1)
         output_feature = self.lastconv(output_feature)
 
-        return output_feature, output_rt
+        return output_feature, output_rt,output_all
 
 
 
@@ -291,19 +297,224 @@ class hourglass(nn.Module):
         out = self.conv6(post)  # in:1/8 out:1/4
 
         return out, pre, post
+class similarity_measure1(nn.Module):
+    def __init__(self):
+        super(similarity_measure1, self).__init__()
+        self.inplanes = 32
+        self.conv0 = nn.Conv2d(128, 128, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)
+        self.relu0 = nn.LeakyReLU(inplace=True)        
+        self.conv1 = nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)        
+        self.relu1 = nn.LeakyReLU(inplace=True)
+        self.conv2 = nn.Conv2d(64, 32, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)
+        self.relu2 = nn.LeakyReLU(inplace=True)
+        self.conv3 = nn.Conv2d(32, 16, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)
+        self.relu3 = nn.LeakyReLU(inplace=True)
+        self.conv4 = nn.Conv2d(16, 8, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)
+        # self.relu4 = nn.LeakyReLU(inplace=True)
+        self.conv5 = nn.Conv2d(8, 1, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)
+        # self.relu5 = nn.ReLU(inplace=True)
+        #self.s1=nn.Parameter(torch.ones(1)).float()*0.5
+
+        for m in self.modules():
+          if isinstance(m,nn.Conv2d):
+            nn.init.kaiming_normal_(m.weight,mode='fan_out',nonlinearity='relu')
+          elif isinstance(m, nn.GroupNorm):
+            nn.init.constant_(m.weight,1)
+            nn.init.constant_(m.bias,0)
+    def forward(self, x):
+
+        output = self.conv0(x)
+        output = self.relu0(output)
+        output = self.conv1(output)
+        output = self.relu1(output)
+        output = self.conv2(output)
+        output = self.relu2(output)
+        output = self.conv3(output)
+        output = self.relu3(output)
+        output = self.conv4(output)
+        # output = self.relu4(output)
+        output = self.conv5(output)
+        # output = torch.abs(output)
+        # output = self.relu5(output)
+        # print(output.shape)
+        # print(torch.mean(output).item(),torch.max(output).item(),torch.min(output).item())
+
+        # output = output/torch.max(output)
+        # output = output-torch.min(output)
+        # output = 1-output
+        # output = torch.exp(-output)
+        #print(torch.mean(output).item(),torch.max(output).item(),torch.min(output).item())
+        return output
+class similarity_measure2(nn.Module):
+    def __init__(self):
+        super(similarity_measure2, self).__init__()
+        self.inplanes = 32
+        self.conv0 = nn.Conv2d(3, 3, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)
+        self.relu0 = nn.LeakyReLU(inplace=True)        
+        self.conv1 = nn.Conv2d(3, 2, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)        
+        self.relu1 = nn.LeakyReLU(inplace=True)
+        self.conv2 = nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)
 
 
+        for m in self.modules():
+          if isinstance(m,nn.Conv2d):
+            nn.init.kaiming_normal_(m.weight,mode='fan_out',nonlinearity='relu')
+          elif isinstance(m, nn.GroupNorm):
+            nn.init.constant_(m.weight,1)
+            nn.init.constant_(m.bias,0)
+    def forward(self, x):
+
+        output = self.conv0(x)
+        output = self.relu0(output)
+        output = self.conv1(output)
+        output = self.relu1(output)
+        output = self.conv2(output)
+
+        # output = torch.abs(output)
+        # output = self.relu5(output)
+        # print(output.shape)
+        # print(torch.mean(output).item(),torch.max(output).item(),torch.min(output).item())
+
+        # output = output/torch.max(output)
+        # output = output-torch.min(output)
+        # output = 1-output
+        # output = torch.exp(-output)
+        #print(torch.mean(output).item(),torch.max(output).item(),torch.min(output).item())
+        return output
 class context_mapping(nn.Module):
-    def __init__(self, dis_planes, twice_times):
+    def __init__(self):
         super(context_mapping,self).__init__()
+        self.similarity1=similarity_measure1()
+        self.similarity2=similarity_measure2()
+        #self.s1=nn.Parameter(torch.ones(1)).float()*0.5
+        #self.s2=nn.Parameter(torch.ones(1)).float()*0.1
+        self.fuse=nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)
+        # self.s2=nn.Conv2d(1, 1, kernel_size=1, stride=1, padding=0,
+        #                        bias=False,dilation=1)
+        self.fuse.weight.data.fill_(1)
+        # self.s2.weight.data.fill_(1)
+        #print(self.s1.weight.data)
+        #exit()
+    def forward(self, lr_feature, hr_feature):
+        # self.s1=self.s1.cuda()
+        # self.s2=self.s2.cuda()
+        self.fuse.weight.data=torch.abs(self.fuse.weight.data)
+        scale=hr_feature.shape[-1]//lr_feature.shape[-1]
+        if scale%2==0:
+            x=torch.arange(-scale//2,scale//2+1).float()
+            x=torch.cat([x[:x.shape[0]//2],x[x.shape[0]//2+1:]]).unsqueeze(0)
+            distance_matrix=x.expand(scale,scale).unsqueeze(0)
+            distance_matrix=torch.cat([distance_matrix,distance_matrix.transpose(2,1)],0)
+            distance_matrix=torch.cat([distance_matrix,torch.sqrt(torch.pow(distance_matrix[0],2)+torch.pow(distance_matrix[1],2)).unsqueeze(0)],0)
+        else:
+            x=torch.arange(-scale//2,scale//2+1).unsqueeze(0)
+            distance_matrix=x.expand(scale,scale).unsqueeze(0)
+            distance_matrix=torch.cat([distance_matrix,distance_matrix.transpose(2,1)],0)
 
+        #print(distance_matrix.shape)
+        distance_matrix=distance_matrix.repeat(1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).unsqueeze(0)
+        lr_feature=lr_feature.unsqueeze(-1).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3],scale) \
+                                     .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3]*scale) \
+                                  .unsqueeze(-2).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],scale,lr_feature.shape[3]*scale) \
+                                  .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2]*scale,lr_feature.shape[3]*scale)
+        #128
+        representation=torch.cat([lr_feature,hr_feature,lr_feature*hr_feature,torch.pow(lr_feature-hr_feature,2)],1)
+        #print(representation.shape)
+        weights1=self.similarity1(representation)
+        weights2=self.similarity2(distance_matrix.float().cuda())
+        #self.s1=self.s1.view(1,1,1,1).repeat(weights1.shape[0],weights1.shape[1],weights1.shape[2],weights1.shape[3])
+        # self.s2=self.s2.view(1,1,1,1).repeat(weights1.shape[0],weights1.shape[1],weights1.shape[2],weights1.shape[3])
+        # mapping=(self.s1*weights1+self.s2*weights2)/(self.s1+self.s2)
+        #print(self.s1[0,0,0,0].item(),self.s2[0,0,0,0].item())
+        fuse=self.fuse(torch.ones(1,2,1,1).cuda())
+        #s2=self.s2(torch.ones(1,1,1,1).cuda())
+        print(self.fuse.weight.data.cpu().squeeze().numpy())
+        #mapping=(self.s1(weights1)+self.s2(weights2))
+        mapping=self.fuse(torch.cat([weights1,weights2],1))
+        return mapping
+class four_related_context_mapping(nn.Module):
+    def __init__(self):
+        super(four_related_context_mapping,self).__init__()
+        self.similarity1=similarity_measure1()
+        self.similarity2=similarity_measure2()
+        self.fuse=nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0,
+                               bias=False,dilation=1)
+        self.fuse.weight.data.fill_(1)
 
     def forward(self, lr_feature, hr_feature):
-        scale=hr_feature.shape[-1]/lr_feature.shape[-1]
-        local_matrix=distance_matrix[scale]
-        
-        return x
 
+        #self.fuse.weight.data=torch.abs(self.fuse.weight.data)
+        scale=hr_feature.shape[-1]//lr_feature.shape[-1]
+        if scale%2==0:
+            x=torch.arange(-scale//2,scale//2+1).float()
+            x=torch.cat([x[:x.shape[0]//2],x[x.shape[0]//2+1:]]).unsqueeze(0)
+            distance_matrix=x.expand(scale,scale).unsqueeze(0)
+            distance_matrix=torch.cat([distance_matrix,distance_matrix.transpose(2,1)],0)
+            distance_matrix=torch.cat([distance_matrix,torch.sqrt(torch.pow(distance_matrix[0],2)+torch.pow(distance_matrix[1],2)).unsqueeze(0)],0)
+        else:
+            exit()
+        #center
+        distance_matrix=distance_matrix.repeat(1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).unsqueeze(0).float().cuda()
+        lr_feature=lr_feature.unsqueeze(-1).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3],scale) \
+                                     .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3]*scale) \
+                                  .unsqueeze(-2).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],scale,lr_feature.shape[3]*scale) \
+                                  .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2]*scale,lr_feature.shape[3]*scale)
+        #128
+        representation=torch.cat([lr_feature,hr_feature,lr_feature*hr_feature,torch.pow(lr_feature-hr_feature,2)],1)
+        weights1=self.similarity1(representation)
+        weights2=self.similarity2(distance_matrix)
+        mapping=self.fuse(torch.cat([weights1,weights2],1))
+        #right
+        x=torch.arange(1,scale+1).float()
+        x=x.expand(scale,scale).unsqueeze(0)
+        x=x.repeat(1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).unsqueeze(0).float().cuda()
+        distance_matrix1=distance_matrix
+        distance_matrix1[:,0,:,:]=scale-x+1
+        distance_matrix1[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix1[:,0,:,:],2)+torch.pow(distance_matrix1[:,1,:,:],2)).unsqueeze(0)
+        representation=torch.cat([lr_feature[:,:,:,scale:],hr_feature[:,:,:,:-scale],lr_feature[:,:,:,scale:]*hr_feature[:,:,:,:-scale], \
+                       torch.pow(lr_feature[:,:,:,scale:]-hr_feature[:,:,:,:-scale],2)],1)
+        weights1=self.similarity1(representation)
+        weights2=self.similarity2(distance_matrix1[:,:,:,scale:])
+        mapping_r=self.fuse(torch.cat([weights1,weights2],1))
+        #left
+        distance_matrix2=distance_matrix
+        distance_matrix2[:,0,:,:]=x
+        distance_matrix2[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix2[:,0,:,:],2)+torch.pow(distance_matrix2[:,1,:,:],2)).unsqueeze(0)
+        representation=torch.cat([lr_feature[:,:,:,:-scale],hr_feature[:,:,:,scale:],lr_feature[:,:,:,:-scale]*hr_feature[:,:,:,scale:], \
+                       torch.pow(lr_feature[:,:,:,:-scale]-hr_feature[:,:,:,scale:],2)],1)
+        weights1=self.similarity1(representation)
+        weights2=self.similarity2(distance_matrix2[:,:,:,:-scale])
+        mapping_l=self.fuse(torch.cat([weights1,weights2],1))
+        #top
+        distance_matrix3=distance_matrix
+        distance_matrix3[:,1,:,:]=(scale-x+1).transpose(2,3)
+        distance_matrix3[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix3[:,0,:,:],2)+torch.pow(distance_matrix3[:,1,:,:],2)).unsqueeze(0)
+        representation=torch.cat([lr_feature[:,:,:-scale,:],hr_feature[:,:,scale:,:],lr_feature[:,:,:-scale,:]*hr_feature[:,:,scale:,:], \
+                       torch.pow(lr_feature[:,:,:-scale,:]-hr_feature[:,:,scale:,:],2)],1)
+        weights1=self.similarity1(representation)
+        weights2=self.similarity2(distance_matrix3[:,:,:-scale,:])
+        mapping_t=self.fuse(torch.cat([weights1,weights2],1))
+        #bottom
+        distance_matrix4=distance_matrix
+        distance_matrix4[:,1,:,:]=x.transpose(2,3)
+        distance_matrix4[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix4[:,0,:,:],2)+torch.pow(distance_matrix4[:,1,:,:],2)).unsqueeze(0)
+        representation=torch.cat([lr_feature[:,:,scale:,:],hr_feature[:,:,:-scale,:],lr_feature[:,:,scale:,:]*hr_feature[:,:,:-scale,:], \
+                       torch.pow(lr_feature[:,:,scale:,:]-hr_feature[:,:,:-scale,:],2)],1)
+        weights1=self.similarity1(representation)
+        weights2=self.similarity2(distance_matrix4[:,:,scale:,:])
+        mapping_b=self.fuse(torch.cat([weights1,weights2],1))
+      
+        return mapping,mapping_r,mapping_l,mapping_t,mapping_b
 class cmfsm(nn.Module):
 
 
@@ -327,12 +538,25 @@ class cmfsm(nn.Module):
 
         self.dres2 = hourglass(32)
 
+        self.dres3 = hourglass(32)
+
+        self.dres4 = hourglass(32)
 
         self.classif1 = nn.Sequential(
             convbn_3d(32, 32, 3, 1, 1),
             nn.ReLU(inplace=True),
             nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
 
+        self.classif2 = nn.Sequential(
+            convbn_3d(32, 32, 3, 1, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
+
+        self.classif3 = nn.Sequential(
+            convbn_3d(32, 32, 3, 1, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
+        self.mapping_matrix=context_mapping()
 
 
         for m in self.modules():
@@ -354,13 +578,14 @@ class cmfsm(nn.Module):
 
     def forward(self, left, right):
 
-        refimg_fea, half = self.feature_extraction(left)
-        targetimg_fea, _ = self.feature_extraction(right)
-
+        refimg_fea, half,all_feature= self.feature_extraction(left)
+        targetimg_fea, _ ,_= self.feature_extraction(right)
+        scale=all_feature.shape[-1]//refimg_fea.shape[-1]
+        mapping=self.mapping_matrix(refimg_fea,all_feature)
         # matching
         cost = Variable(
             torch.FloatTensor(refimg_fea.size()[0],
-                              refimg_fea.size()[1] * 2, self.maxdisp // 4,
+                              refimg_fea.size()[1] * 2, self.maxdisp // scale,
                               refimg_fea.size()[2],
                               refimg_fea.size()[3]).zero_()).cuda()
 
@@ -374,7 +599,7 @@ class cmfsm(nn.Module):
                 cost[:, :refimg_fea.size()[1], i, :, :] = refimg_fea
                 cost[:, refimg_fea.size()[1]:, i, :, :] = targetimg_fea
         cost = cost.contiguous()
-
+        
         cost0 = self.dres0(cost)
         cost0 = self.dres1(cost0) + cost0
         out1, pre1, post1 = self.dres2(cost0, None, None)
@@ -399,9 +624,17 @@ class cmfsm(nn.Module):
         cost3 = self.classif3(out3) + cost2
 
         cost3 = torch.squeeze(cost3, 1)
+        cost3=cost3.unsqueeze(-1).expand(cost3.shape[0],cost3.shape[1],cost3.shape[2],cost3.shape[3],scale) \
+                                     .contiguous().view(cost3.shape[0],cost3.shape[1],cost3.shape[2],cost3.shape[3]*scale) \
+                                  .unsqueeze(-2).expand(cost3.shape[0],cost3.shape[1],cost3.shape[2],scale,cost3.shape[3]*scale) \
+                                  .contiguous().view(cost3.shape[0],cost3.shape[1],cost3.shape[2]*scale,cost3.shape[3]*scale) \
+                                  .unsqueeze(-3).expand(cost3.shape[0],cost3.shape[1],scale,cost3.shape[2]*scale,cost3.shape[3]*scale) \
+                                  .contiguous().view(cost3.shape[0],cost3.shape[1]*scale,cost3.shape[2]*scale,cost3.shape[3]*scale)
+        cost3=cost3*mapping
         pred3 = F.softmax(cost3, dim=1)
-        pred3 = disparityregression(self.maxdisp // 4)(pred3)
-        pred3 = self.srr(pred3, left, refimg_fea, half)
+        pred3 = disparityregression(self.maxdisp)(pred3)
+        #pred3 = self.srr(pred3, left, refimg_fea, half)
+        #pred3=
         return pred3
 
 

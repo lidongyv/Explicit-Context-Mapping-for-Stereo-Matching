@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-15 13:52:53
+# @Last Modified time: 2018-10-16 12:06:47
 import sys
 import torch
 import visdom
@@ -109,7 +109,9 @@ def train(args):
     else:
         print("No checkpoint found at '{}'".format(args.resume))
         print('Initialize from resnet34!')
-        resnet34=torch.load('/home/lidong/Documents/CMF/12_cmf_flying3d_best_model.pkl')
+        resnet34=torch.load('/home/lidong/Documents/CMF/9_cmfsm_flying3d_best_model.pkl')
+        #optimizer.load_state_dict(resnet34['optimizer_state'])
+        #model
         #model.load_state_dict(resnet34['state_dict'])
         model_dict=model.state_dict()            
         pre_dict={k: v for k, v in resnet34['model_state'].items() if k in model_dict}
@@ -122,6 +124,20 @@ def train(args):
         #     print(k)
         model_dict.update(pre_dict)
         model.load_state_dict(model_dict)
+        #optimizer
+        # opti_dict=optimizer.state_dict()
+        # pre_dict={k: v for k, v in resnet34['optimizer_state'].items() if k in opti_dict}
+        # # for k,v in pre_dict.items():
+        # #     print(k)
+        # #     if k=='state':
+        # #         for a,b in v.items():
+        # #             print(a)
+        # #             for c,d in b.items():
+        # #                 print(c,d)            
+        # exit()
+        # #pre_dict=resnet34['optimizer_state']
+        # opti_dict.update(pre_dict)
+        # optimizer.load_state_dict(opti_dict)
         print('load success!')
         trained=0
 
@@ -147,16 +163,18 @@ def train(args):
             mask.detach_()
             optimizer.zero_grad()
             #print(P.shape)
-            output1, output2, output3 = model(left,right)
-            #print(output3.shape)
-            output1 = torch.squeeze(output1, 1)
-            output2 = torch.squeeze(output2, 1)
-            output3 = torch.squeeze(output3, 1)
-            #outputs=outputs
-            loss = 0.5 * F.smooth_l1_loss(output1[mask], disparity[mask],reduction='elementwise_mean') \
-                 + 0.7 * F.smooth_l1_loss(output2[mask], disparity[mask], reduction='elementwise_mean') \
-                 + F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
-            #loss = smooth_l1_loss(input=outputs, target=disparity,mask=P)
+            # output1, output2, output3 = model(left,right)
+            # #print(output3.shape)
+            # output1 = torch.squeeze(output1, 1)
+            # output2 = torch.squeeze(output2, 1)
+            # output3 = torch.squeeze(output3, 1)
+            # #outputs=outputs
+            # loss = 0.5 * F.smooth_l1_loss(output1[mask], disparity[mask],reduction='elementwise_mean') \
+            #      + 0.7 * F.smooth_l1_loss(output2[mask], disparity[mask], reduction='elementwise_mean') \
+            #      + F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
+            output3 = model(left,right)
+
+            loss = F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
             loss.backward()
             #parameters=model.named_parameters()
             optimizer.step()
@@ -218,7 +236,7 @@ def train(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--arch', nargs='?', type=str, default='bilinear_cmf',
+    parser.add_argument('--arch', nargs='?', type=str, default='cmfsm',
                         help='Architecture to use [\'region support network\']')
     parser.add_argument('--dataset', nargs='?', type=str, default='flying3d',
                         help='Dataset to use [\'sceneflow and kitti etc\']')
