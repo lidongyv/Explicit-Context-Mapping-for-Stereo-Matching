@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-22 16:27:40
+# @Last Modified time: 2018-10-25 16:54:34
 import sys
 import torch
 import visdom
@@ -43,7 +43,7 @@ def train(args):
 
     # Setup visdom for visualization
     if args.visdom:
-        vis = visdom.Visdom(env='sceneflow')
+        vis = visdom.Visdom(env='sceneflow_16')
         # old_window = vis.line(X=torch.zeros((1,)).cpu(),
         #                        Y=torch.zeros((1)).cpu(),
         #                        opts=dict(xlabel='minibatches',
@@ -230,7 +230,7 @@ def train(args):
          'model_state': model.state_dict(),
          'optimizer_state': optimizer.state_dict(),
          }
-        np.save('loss.npy',loss_rec)
+        np.save('loss_16.npy',loss_rec)
         torch.save(state, "{}_{}_{}_best_model.pkl".format(
         epoch,args.arch, args.dataset))    
         #exit()
@@ -239,7 +239,7 @@ def train(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--arch', nargs='?', type=str, default='bilinear_cmf_sub_8',
+    parser.add_argument('--arch', nargs='?', type=str, default='bilinear_cmf_sub_16',
                         help='Architecture to use [\'region support network\']')
     parser.add_argument('--dataset', nargs='?', type=str, default='flying3d',
                         help='Dataset to use [\'sceneflow and kitti etc\']')
@@ -255,7 +255,7 @@ if __name__ == '__main__':
                         help='Learning Rate')
     parser.add_argument('--feature_scale', nargs='?', type=int, default=1,
                         help='Divider for # of features to use')
-    parser.add_argument('--resume', nargs='?', type=str, default=None,
+    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/1_bilinear_cmf_sub_16_flying3d_best_model.pkl',
                         help='Path to previous saved model to restart from /home/lidong/Documents/PSSM/rstereo_sceneflow_best_model.pkl')
     parser.add_argument('--visdom', nargs='?', type=bool, default=True,
                         help='Show visualization(s) on visdom | False by  default')

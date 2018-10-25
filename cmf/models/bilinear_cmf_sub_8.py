@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-19 22:39:48
+# @Last Modified time: 2018-10-22 16:25:55
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -144,13 +144,13 @@ class feature_extraction(nn.Module):
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True))
-        self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
+        self.layer1 = self._make_layer(BasicBlock, 32, 3, 2, 1, 1)
         self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
         self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 2)
         self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 4)
 
         self.branch1 = nn.Sequential(
-            nn.AvgPool2d((64, 64), stride=(64, 64)),
+            nn.AvgPool2d((4, 4), stride=(4, 4)),
             convbn(128, 32, 1, 1, 0, 1),
             nn.ReLU(inplace=True))
 
@@ -205,7 +205,7 @@ class feature_extraction(nn.Module):
         output_raw = self.layer2(output_rt)
         output = self.layer3(output_raw)
         output_skip = self.layer4(output)
-
+        #print(output_skip.shape)
         output_branch1 = self.branch1(output_skip)
         output_branch1 = F.interpolate(
             output_branch1, (output_skip.size()[2], output_skip.size()[3]),
@@ -342,13 +342,13 @@ class hourglass(nn.Module):
         return out, pre, post
 
 
-class bilinear_cmf(nn.Module):
+class bilinear_cmf_sub_8(nn.Module):
 
 
     def __init__(self, 
                 maxdisp=192):
 
-        super(bilinear_cmf, self).__init__()
+        super(bilinear_cmf_sub_8, self).__init__()
         self.maxdisp = maxdisp
         self.feature_extraction = feature_extraction()
 
@@ -411,11 +411,11 @@ class bilinear_cmf(nn.Module):
         # matching
         cost = Variable(
             torch.FloatTensor(refimg_fea.size()[0],
-                              refimg_fea.size()[1] * 2, self.maxdisp // 4,
+                              refimg_fea.size()[1] * 2, self.maxdisp // 8,
                               refimg_fea.size()[2],
                               refimg_fea.size()[3]).zero_()).cuda()
 
-        for i in range(self.maxdisp // 4):
+        for i in range(self.maxdisp // 8):
             if i > 0:
                 cost[:, :refimg_fea.size()[1], i, :, i:] = refimg_fea[:, :, :,
                                                                       i:]

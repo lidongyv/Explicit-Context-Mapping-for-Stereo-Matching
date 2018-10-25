@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-20 22:16:05
+# @Last Modified time: 2018-10-24 22:11:29
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -442,7 +442,7 @@ class six_related_context_mapping(nn.Module):
     def __init__(self):
         super(six_related_context_mapping,self).__init__()
         self.similarity1=similarity_measure1()
-        self.similarity2=similarity_measure2()
+        #self.similarity2=similarity_measure2()
         self.fuse=nn.Sequential(nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0,
                                bias=False,dilation=1),nn.LeakyReLU(inplace=True))
         #self.fuse.weight.data.fill_(1)
@@ -657,13 +657,13 @@ class four_related_context_mapping(nn.Module):
         mapping_norm=F.softmax(mapping_all, dim=1)
         #return mapping,mapping_r,mapping_l,mapping_t,mapping_b
         return torch.chunk(mapping_norm*mapping_all,5,dim=1)
-class cmfsm(nn.Module):
+class cmfsm_sub_8(nn.Module):
 
 
     def __init__(self, 
                 maxdisp=192):
 
-        super(cmfsm, self).__init__()
+        super(cmfsm_sub_8, self).__init__()
         self.maxdisp = maxdisp
         self.feature_extraction = feature_extraction()
 
@@ -734,7 +734,7 @@ class cmfsm(nn.Module):
                               refimg_fea.size()[2],
                               refimg_fea.size()[3]).zero_()).cuda()
 
-        for i in range(self.maxdisp // 4):
+        for i in range(self.maxdisp // scale):
             if i > 0:
                 cost[:, :refimg_fea.size()[1], i, :, i:] = refimg_fea[:, :, :,
                                                                       i:]

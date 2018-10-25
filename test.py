@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-16 14:30:52
+# @Last Modified time: 2018-10-22 16:02:09
 import sys
 import torch
 import visdom
@@ -43,7 +43,7 @@ def train(args):
     model.cuda()
 
 
-    saved_model_path=r'/home/lidong/Documents/CMF/trained/learning-fuse'
+    saved_model_path=r'/home/lidong/Documents/CMF/trained/test/'
     saved_model_dir=os.listdir(saved_model_path)
     saved_model_dir.sort()
     for s in range(len(saved_model_dir)):
@@ -55,7 +55,8 @@ def train(args):
         epoch=checkpoint['epoch']
         error=0
         error_rec=[]
-           
+        error_rec_non=[]
+        error_rec_true=[]
         #trained
         print('training!')
         model.eval()
@@ -65,26 +66,37 @@ def train(args):
                 left = left.cuda()
                 right = right.cuda()
                 disparity = disparity.cuda()[:540,...]
+                local=torch.arange(disparity.shape[-1]).repeat(disparity.shape[0],disparity.shape[1],1).view_as(disparity).float().cuda()
+                mask_non = (disparity < 192) & (disparity >= 0) &((local-disparity)>=0)
+                mask_true = (disparity < 192) & (disparity > 0)&((local-disparity)>=0)
                 mask = (disparity < 192) & (disparity >= 0)
                 mask.detach_()
+                mask_non.detach_()
+                mask_true.detach_()
                 #print(P.shape)
-                #output1, output2, output3 = model(left,right)
-                output3 = model(left,right)
+                output1, output2, output3 = model(left,right)
+                #output3 = model(left,right)
                 output3 = torch.squeeze(output3, 1)[:540,...]
                 loss=torch.mean(torch.abs(output3[mask] - disparity[mask]))
+                loss_non=torch.mean(torch.abs(output3[mask_non] - disparity[mask_non]))
+                loss_true=torch.mean(torch.abs(output3[mask_true] - disparity[mask_true]))
                 #loss = F.l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
                 error_rec.append(loss.item())
+                error_rec_non.append(loss_non.item())
+                error_rec_true.append(loss_true.item())
             print(time.time()-start_time)
-            print("data [%d/1062/%d/%d] Loss: %.4f" % (i, epoch, args.n_epoch,loss.item()))
+            print("data [%d/1062/%d/%d] Loss: %.4f ,Loss_non: %.4f, Loss_true: %.4f" % (i, epoch, args.n_epoch,loss.item(),loss_non.item(),loss_true.item()))
             #break
         error=np.mean(error_rec)
-        np.save('/home/lidong/Documents/CMF/test/learning-fuse/error:%.4f,epoch:%d.npy'%(error,epoch),error_rec)
+        error_non=np.mean(error_rec_non)
+        error_true=np.mean(error_rec_true)
+        np.save('/home/lidong/Documents/CMF/test/all_bilinear/epoch:%d_error%.4f_non%.4f_true%.4f.npy'%(epoch-1,error,error_non,error_true),[error_rec,error_rec_non,error_rec_true])
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--arch', nargs='?', type=str, default='cmfsm',
+    parser.add_argument('--arch', nargs='?', type=str, default='bilinear_cmf_sub_8',
                         help='Architecture to use [\'region support network\']')
     parser.add_argument('--dataset', nargs='?', type=str, default='flying3d',
                         help='Dataset to use [\'sceneflow and kitti etc\']')
