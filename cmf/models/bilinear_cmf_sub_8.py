@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-22 16:25:55
+# @Last Modified time: 2018-10-26 10:07:51
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -136,10 +136,9 @@ class feature_extraction(nn.Module):
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1, bias=False))
+            convbn(32, 32, 3, 1, 1, 1),
+            nn.ReLU(inplace=True))
         self.secondconv = nn.Sequential(
-            nn.GroupNorm(group_dim, 32),
-            nn.ReLU(inplace=True),
             convbn(32, 32, 3, 2, 1, 1),
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),

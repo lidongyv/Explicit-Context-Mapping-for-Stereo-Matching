@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-03-19 13:33:07
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-22 16:20:33
+# @Last Modified time: 2018-11-17 02:50:54
 
 import os
 import torch
@@ -32,7 +32,7 @@ class Flying3d(data.Dataset):
         self.split=split
         if len(self.files)<1:
             raise Exception("No files for ld=[%s] found in %s" % (split, self.ld))
-
+        self.length=self.__len__()
         print("Found %d in %s data" % (len(self.files), self.datapath))
 
     def __len__(self):
@@ -45,7 +45,10 @@ class Flying3d(data.Dataset):
         :param index:
         """
         #index=58
-
+        if index%2==0:
+            index=2399
+        else:
+            index=3561
         data=np.load(os.path.join(self.datapath,self.split,self.files[index]))
         #print(os.path.join(self.datapath,self.split,self.files[index]))
         if self.split=='train':
@@ -56,7 +59,15 @@ class Flying3d(data.Dataset):
             data=data[x1:x1+th,y1:y1+tw,:]
         else:
             h,w = data.shape[0],data.shape[1]
-            padding=np.zeros([4,data.shape[1],data.shape[2]])
+            #padding=np.zeros([24,data.shape[1],data.shape[2]])
+            # padding=data[-4:,...]
+            # th, tw = 512, 960
+            # x1 = 0
+            # y1 = 0
+            # data=data[-512:,y1:tw,:]
+            # data=np.concatenate([data,padding],0)
+            h,w = data.shape[0],data.shape[1]
+            padding=data[-36:,...]
             th, tw = 540, 960
             x1 = 0
             y1 = 0
@@ -70,11 +81,15 @@ class Flying3d(data.Dataset):
         #print(torch.max(image),torch.min(image))
         right=data[...,3:6]/255
         disparity=data[...,6]
-
+        # print(np.sum(np.where(disparity[:540,...]==0,np.ones(1),np.zeros(1))))
+        # print(np.sum(np.where(disparity[:540,...]<=1,np.ones(1),np.zeros(1))))
+        # print(np.sum(np.where(disparity<=2,np.ones(1),np.zeros(1))))
+        # print(np.sum(np.where(disparity<=3,np.ones(1),np.zeros(1))))
+        # print(disparity.shape)
         if self.is_transform:
             left, right,disparity = self.transform(left, right,disparity)
         #print(torch.max(left),torch.min(left))
-        return left, right,disparity,image
+        return left, right,disparity,image,index
     def transform(self, left, right,disparity):
         """transform
         """

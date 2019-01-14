@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-16 21:02:58
+# @Last Modified time: 2018-11-15 11:09:29
 import sys
 import torch
 import visdom
@@ -25,24 +25,35 @@ import os
 def train(args):
     torch.backends.cudnn.benchmark=True
     # Setup Augmentations
+
     loss_rec=[0]
     best_error=2
     # Setup Dataloader
-    data_path = get_data_path(args.dataset)
     data_loader = get_loader(args.dataset)
+    data_path = get_data_path(args.dataset)
+    t_loader = data_loader(data_path, is_transform=True,
+                           split='train', img_size=(args.img_rows, args.img_cols))
     v_loader = data_loader(data_path, is_transform=True,
-                           split='test', img_size=(args.img_rows, args.img_cols))
+                           split='eval', img_size=(args.img_rows, args.img_cols))
     valloader = data.DataLoader(
         v_loader, batch_size=args.batch_size, num_workers=2, shuffle=False)
-    # Setup Model
+    train_length=t_loader.length//2
+    test_length=v_loader.length//2
+    trainloader = data.DataLoader(
+        t_loader, batch_size=args.batch_size, num_workers=2, shuffle=True)
+    valloader = data.DataLoader(
+        v_loader, batch_size=args.batch_size, num_workers=2, shuffle=False)
     model = get_model(args.arch)
+    # parameters=model.named_parameters()
+    # for name,param in parameters:
+    #     print(name)
+    #     print(param.grad)
+    # exit()
 
     model = torch.nn.DataParallel(
-        model, device_ids=[0,1])
-    test_length=v_loader.__len__()/2
+        model, device_ids=[2,3])
     #model = torch.nn.DataParallel(model, device_ids=[0])
-    model.cuda(0)
-
+    model.cuda(2)
 
     saved_model_path=r'/home/lidong/Documents/CMF/trained/test/'
     saved_model_dir=os.listdir(saved_model_path)
@@ -54,23 +65,26 @@ def train(args):
         print("Loaded checkpoint '{}' (epoch {})"
               .format(os.path.join(saved_model_path,saved_model_dir[s]), checkpoint['epoch']))
         epoch=checkpoint['epoch']
-        error=0
+        error=10
         error_rec=[]
         error_rec_non=[]
         error_rec_true=[]
+        error_rec_3=[]
         #trained
-        print('training!')
+        print('testing!')
         model.eval()
+        ones=torch.ones(1).cuda(2)
+        zeros=torch.zeros(1).cuda(2)
         for i, (left, right,disparity,image) in enumerate(valloader):
             with torch.no_grad():
                 start_time=time.time()
-                left = left.cuda(0)
-                right = right.cuda(0)
-                disparity = disparity.cuda(0)[:,:540,:960]
-                local=torch.arange(disparity.shape[-1]).repeat(disparity.shape[0],disparity.shape[1],1).view_as(disparity).float().cuda(0)
-                mask_non = (disparity < 192) & (disparity >= 0) &((local-disparity)>=0)
+                left = left.cuda(2)
+                right = right.cuda(2)
+                disparity = disparity.cuda(2)
+                local=torch.arange(disparity.shape[-1]).repeat(disparity.shape[0],disparity.shape[1],1).view_as(disparity).float().cuda(2)
+                mask_non = (disparity < 192) & (disparity > 0) &((local-disparity)>=0)
                 mask_true = (disparity < 192) & (disparity > 0)&((local-disparity)>=0)
-                mask = (disparity < 192) & (disparity >= 0)
+                mask = (disparity < 192) & (disparity > 0)
                 mask.detach_()
                 mask_non.detach_()
                 mask_true.detach_()
@@ -80,37 +94,33 @@ def train(args):
                 #output3 = model(left,right)
                 #print(output3.shape)
                 output1=output3
-                output1 = torch.squeeze(output1, 1)[:,:540,:960]
-                # print(output3.shape,disparity.shape)
-                # exit()
-                # print(torch.sum(torch.where(disparity==0,torch.ones(1).cuda(0),torch.zeros(1).cuda(0))))
-                # print(torch.sum(torch.where(disparity<=1,torch.ones(1).cuda(0),torch.zeros(1).cuda(0))))
-                # print(torch.sum(torch.where(disparity<=2,torch.ones(1).cuda(0),torch.zeros(1).cuda(0))))
-                # print(torch.sum(torch.where(disparity<=3,torch.ones(1).cuda(0),torch.zeros(1).cuda(0))))
-                # print(disparity.shape)
-                #output3=torch.where(output3<1,torch.zeros(1).cuda(0),output3)
+                output1 = torch.squeeze(output1, 1)
                 loss=torch.mean(torch.abs(output1[mask] - disparity[mask]))
                 loss_non=torch.mean(torch.abs(output1[mask_non] - disparity[mask_non]))
                 loss_true=torch.mean(torch.abs(output1[mask_true] - disparity[mask_true]))
+                error_map=torch.where((torch.abs(output1[mask] - disparity[mask])<3) | (torch.abs(output1[mask] - disparity[mask])<0.05*disparity[mask]),ones,zeros)
+                total=torch.where(disparity[mask]>0,ones,zeros)
+                loss_3=100-torch.sum(error_map)/torch.sum(total)*100
                 #loss = F.l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
                 error_rec.append(loss.item())
                 error_rec_non.append(loss_non.item())
-                error_rec_true.append(loss_true.item())
-            print(time.time()-start_time)
-            print("data [%d/%d/%d/%d] Loss: %.4f ,Loss_non: %.4f, Loss_true: %.4f" % (i, test_length,epoch, args.n_epoch,loss.item(),loss_non.item(),loss_true.item()))
+                error_rec_3.append(loss_3.item())
+                print(time.time()-start_time)
+            print(np.mean(error_rec_3))
+            print("data [%d/%d/%d/%d] Loss: %.4f ,Loss_non: %.4f, loss_3: %.4f" % (i, test_length,epoch, args.n_epoch,loss.item(),loss_non.item(),loss_3.item()))
             #break
         error=np.mean(error_rec)
         error_non=np.mean(error_rec_non)
-        error_true=np.mean(error_rec_true)
-        np.save('/home/lidong/Documents/CMF/test/all_bilinear/epoch:%d_error%.4f_non%.4f_true%.4f.npy'%(epoch-1,error,error_non,error_true),[error_rec,error_rec_non,error_rec_true])
+        error_3=np.mean(error_rec_3)
+        np.save('/home/lidong/Documents/CMF/test/kitti_sub4/epoch:%d_error%.4f_non%.4f_error_3_%.4f.npy'%(epoch-1,error,error_non,error_3),[error_rec,error_rec_non,error_rec_3])
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--arch', nargs='?', type=str, default='bilinear_cmf_sub_16',
+    parser.add_argument('--arch', nargs='?', type=str, default='cmfsm',
                         help='Architecture to use [\'region support network\']')
-    parser.add_argument('--dataset', nargs='?', type=str, default='flying3d',
+    parser.add_argument('--dataset', nargs='?', type=str, default='kitti',
                         help='Dataset to use [\'sceneflow and kitti etc\']')
     parser.add_argument('--img_rows', nargs='?', type=int, default=540,
                         help='Height of the input image')

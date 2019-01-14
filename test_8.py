@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-13 21:50:47
+# @Last Modified time: 2018-11-05 15:21:44
 import sys
 import torch
 import visdom
@@ -42,7 +42,7 @@ def train(args):
 
     # Setup visdom for visualization
     if args.visdom:
-        vis = visdom.Visdom(env='8_sub')
+        vis = visdom.Visdom(env='sceneflow_8_sub')
         # old_window = vis.line(X=torch.zeros((1,)).cpu(),
         #                        Y=torch.zeros((1)).cpu(),
         #                        opts=dict(xlabel='minibatches',
@@ -99,20 +99,20 @@ def train(args):
             #model_dict=model.state_dict()  
             #opt=torch.load('/home/lidong/Documents/cmf/cmf/exp1/l2/sgd/log/83/rsnet_nyu_best_model.pkl')
             model.load_state_dict(checkpoint['model_state'])
-            optimizer.load_state_dict(checkpoint['optimizer_state'])
+            #optimizer.load_state_dict(checkpoint['optimizer_state'])
             #opt=None
             print("Loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
             trained=checkpoint['epoch']
-            # loss_rec=np.load('/home/lidong/Documents/CMF/loss_8.npy')
-            # loss_rec=list(loss_rec)
-            # print(train_length)
-            # loss_rec=loss_rec[:train_length*trained]
+            loss_rec=np.load('/home/lidong/Documents/CMF/loss_8.npy')
+            loss_rec=list(loss_rec)
+            print(train_length)
+            loss_rec=loss_rec[:train_length*trained]
             
     else:
         print("No checkpoint found at '{}'".format(args.resume))
         print('Initialize from resnet34!')
-        resnet34=torch.load('/home/lidong/Documents/CMF/29_cmfsm_sub_8_sceneflow_best_model.pkl')
+        resnet34=torch.load('/home/lidong/Documents/CMF/23_cmfsm_sub_8_sceneflow_best_model.pkl')
         #optimizer.load_state_dict(resnet34['optimizer_state'])
         #model
         #model.load_state_dict(resnet34['state_dict'])
@@ -152,39 +152,39 @@ def train(args):
         
         #trained
         print('training!')
-        model.train()
+        model.eval()
         for i, (left, right,disparity,image) in enumerate(trainloader):
-            #with torch.no_grad():
-            #print(left.shape)
-            #print(torch.max(image),torch.min(image))
-            start_time=time.time()
-            left = left.cuda()
-            right = right.cuda()
-            disparity = disparity.cuda()
-            mask = (disparity < 192) & (disparity >= 0)
-            mask.detach_()
-            optimizer.zero_grad()
-            #print(P.shape)
-            output1, output2, output3 = model(left,right)
-            output1 = torch.squeeze(output1, 1)
-            output2 = torch.squeeze(output2, 1)
-            output3 = torch.squeeze(output3, 1)
-            # #outputs=outputs
-            loss = 0.5 * F.smooth_l1_loss(output1[mask], disparity[mask],reduction='elementwise_mean') \
-                 + 0.7 * F.smooth_l1_loss(output2[mask], disparity[mask], reduction='elementwise_mean') \
-                 + F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
+            with torch.no_grad():
+                #print(left.shape)
+                #print(torch.max(image),torch.min(image))
+                start_time=time.time()
+                left = left.cuda()
+                right = right.cuda()
+                disparity = disparity.cuda()
+                mask = (disparity < 192) & (disparity >= 0)
+                mask.detach_()
+                optimizer.zero_grad()
+                #print(P.shape)
+                output1, output2, output3 = model(left,right)
+                #print(output3.shape)
+                # output1 = torch.squeeze(output1, 1)
+                # output2 = torch.squeeze(output2, 1)
+                # output3 = torch.squeeze(output3, 1)
+                # #outputs=outputs
+                # loss = 0.5 * F.smooth_l1_loss(output1[mask], disparity[mask],reduction='elementwise_mean') \
+                #      + 0.7 * F.smooth_l1_loss(output2[mask], disparity[mask], reduction='elementwise_mean') \
+                #      + F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
+                #loss=loss/2.2
+                #output3 = model(left,right)
 
-            #loss=loss/2.2
-            #output3 = model(left,right)
-
-            #loss = F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
-            loss.backward()
-            #parameters=model.named_parameters()
-            optimizer.step()
-            
-            
-            #torch.cuda.empty_cache()
-            #print(loss.item)
+                #loss = F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
+                #loss.backward()
+                #parameters=model.named_parameters()
+                #optimizer.step()
+                
+                
+                #torch.cuda.empty_cache()
+                #print(loss.item)
             if args.visdom ==True:
                 vis.line(
                     X=torch.ones(1).cpu() * i+torch.ones(1).cpu() *(epoch-trained)*train_length,
@@ -223,22 +223,17 @@ def train(args):
                         opts=dict(title='image!', caption='image.'),
                         win=image_window,
                     )            
-            loss_rec.append(loss.item())
-            print(time.time()-start_time)
-            print("data [%d/%d/%d/%d] Loss: %.4f" % (i,train_length, epoch, args.n_epoch,loss.item()/2.2))
 
-        state = {'epoch': epoch+1,
-         'model_state': model.state_dict(),
-         'optimizer_state': optimizer.state_dict()}
-         
-        np.save('loss_8.npy',loss_rec)
-        torch.save(state, "{}_{}_{}_disparity_best_model.pkl".format(epoch,args.arch,args.dataset))
+            print(time.time()-start_time)
+            #print("data [%d/%d/%d/%d] Loss: %.4f" % (i,train_length, epoch, args.n_epoch,loss.item()/2.2))
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
     parser.add_argument('--arch', nargs='?', type=str, default='cmfsm_sub_8',
                         help='Architecture to use [\'region support network\']')
-    parser.add_argument('--dataset', nargs='?', type=str, default='flying3d',
+    parser.add_argument('--dataset', nargs='?', type=str, default='sceneflow',
                         help='Dataset to use [\'sceneflow and kitti etc\']')
     parser.add_argument('--img_rows', nargs='?', type=int, default=480,
                         help='Height of the input image')
@@ -252,9 +247,9 @@ if __name__ == '__main__':
                         help='Learning Rate')
     parser.add_argument('--feature_scale', nargs='?', type=int, default=1,
                         help='Divider for # of features to use')
-    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/22_cmfsm_sub_8_flying3d_disparity_best_model.pkl',
+    parser.add_argument('--resume', nargs='?', type=str, default=None,
                         help='Path to previous saved model to restart from /home/lidong/Documents/PSSM/rstereo_sceneflow_best_model.pkl')
-    parser.add_argument('--visdom', nargs='?', type=bool, default=True,
+    parser.add_argument('--visdom', nargs='?', type=bool, default=False,
                         help='Show visualization(s) on visdom | False by  default')
     args = parser.parse_args()
     train(args)

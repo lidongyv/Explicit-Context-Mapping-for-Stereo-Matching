@@ -1,7 +1,8 @@
 import json
 
 from cmf.loader.Flying3d import Flying3d
-
+from cmf.loader.SceneFlow import SceneFlow
+from cmf.loader.KITTI import KITTI
 def get_loader(name):
     """get_loader
 
@@ -10,6 +11,8 @@ def get_loader(name):
     print(name)
     return {
         'flying3d': Flying3d,
+        'sceneflow':SceneFlow,
+        'kitti':KITTI,
     }[name]
 
 

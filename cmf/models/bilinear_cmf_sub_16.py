@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-22 18:21:06
+# @Last Modified time: 2018-10-31 10:48:57
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -136,10 +136,9 @@ class feature_extraction(nn.Module):
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1, bias=False))
+            convbn(32, 32, 3, 1, 1, 1),
+            nn.ReLU(inplace=True))
         self.secondconv = nn.Sequential(
-            nn.GroupNorm(group_dim, 32),
-            nn.ReLU(inplace=True),
             convbn(32, 32, 3, 2, 1, 1),
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
@@ -324,14 +323,16 @@ class hourglass(nn.Module):
 
         out = self.conv1(x)  # in:1/4 out:1/8
         pre = self.conv2(out)  # in:1/8 out:1/8
+        
         if postsqu is not None:
             pre = F.relu(pre + postsqu, inplace=True)
         else:
             pre = F.relu(pre, inplace=True)
 
         out = self.conv3(pre)  # in:1/8 out:1/16
+        #print(out.shape,pre.shape)
         out = self.conv4(out)  # in:1/16 out:1/16
-
+        #print(out.shape,pre.shape)
         if presqu is not None:
             post = F.relu(
                 self.conv5(out) + presqu, inplace=True)  # in:1/16 out:1/8
@@ -339,7 +340,7 @@ class hourglass(nn.Module):
             post = F.relu(self.conv5(out) + pre, inplace=True)
 
         out = self.conv6(post)  # in:1/8 out:1/4
-
+        #print(out.shape,pre.shape)
         return out, pre, post
 
 
@@ -428,10 +429,14 @@ class bilinear_cmf_sub_16(nn.Module):
         cost = cost.contiguous()
 
         cost0 = self.dres0(cost)
+        #print(cost0.shape)
         cost0 = self.dres1(cost0) + cost0
+        #print(cost0.shape)
         #print(cost0.shape)
         out1, pre1, post1 = self.dres2(cost0, None, None)
         #print(out1.shape)
+        #print(out1.shape,cost0.shape)
+        #exit()
         out1 = out1 + cost0
 
         out2, pre2, post2 = self.dres3(out1, pre1, post1)

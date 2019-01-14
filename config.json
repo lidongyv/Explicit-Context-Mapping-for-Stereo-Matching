@@ -2,5 +2,13 @@
   "flying3d":
   {
     "data_path": "/home/lidong/Documents/datasets/flying3d/"
+  },
+    "sceneflow":
+  {
+    "data_path": "/home/lidong/Documents/datasets/flying3d/"
+  },
+    "kitti":
+  {
+    "data_path": "/home/lidong/Documents/datasets/kitti/"
   }
 }

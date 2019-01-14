@@ -1,0 +1,45 @@
+sub 8
+train:
+without aggregation
+0.2s 3.2g
+without mapping
+0.2s 2.7g
+one aggregation four
+0.25s 3.4g
+one aggregation six
+0.3s 3.6g
+two aggregation six
+0.3s 3.8g
+three aggregation six
+0.32s 3.8g
+eval:
+without aggregation
+0.07s 1.2g
+without mapping
+0.07s 1.2g
+one aggregation four
+0.08s 1.8g/0.08s 1.5g(-3 zeros volume)
+one aggregation six
+0.10s 1.9g
+two aggregation six
+0.11s 1.9g
+three aggregation six
+0.13s 1.9g
+four related+three hourglass
+1.645
+try:
+mapping+four aggregation
+four aggregation=0.3g
+fused volume=0.3g
+fused:0.08s 1.5g
+cost1:0.08s 1.3g
+binear:0.08s 1.273g
+expand:0.08s 1.275g
+one center:0.08s 1.549g
+[...,scale:-scale,scale:-scale]:1.539g
+four:1.549
+one:1.359
+two:1.549
+fused four:1.551
+seven:0.09s 1.837g/0.1s 1.933g/0.1s 1.893(no target volume)
+for version:0.12s/1.645g

@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-14 16:26:38
+# @Last Modified time: 2018-11-17 02:56:15
 import sys
 import torch
 import visdom
@@ -21,7 +21,7 @@ from cmf.models import get_model
 from cmf.loader import get_loader, get_data_path
 from cmf.loss import *
 import os
-
+import cv2
 def train(args):
     torch.backends.cudnn.benchmark=True
     # Setup Augmentations
@@ -32,41 +32,20 @@ def train(args):
     data_loader = get_loader(args.dataset)
     data_path = get_data_path(args.dataset)
     t_loader = data_loader(data_path, is_transform=True,
-                           split='train', img_size=(args.img_rows, args.img_cols))
-
+                           split='test', img_size=(args.img_rows, args.img_cols))
+    v_loader = data_loader(data_path, is_transform=True,
+                           split='test', img_size=(args.img_rows, args.img_cols))
+    valloader = data.DataLoader(
+        v_loader, batch_size=args.batch_size, num_workers=1, shuffle=False)
     train_length=t_loader.length//2
+    test_length=v_loader.length//2
     trainloader = data.DataLoader(
-        t_loader, batch_size=args.batch_size, num_workers=2, shuffle=True)
+        t_loader, batch_size=args.batch_size, num_workers=1, shuffle=True)
+    valloader = data.DataLoader(
+        v_loader, batch_size=args.batch_size, num_workers=1, shuffle=False)
 
 
 
-    # Setup visdom for visualization
-    if args.visdom:
-        vis = visdom.Visdom(env='cm_16_sub')
-        # old_window = vis.line(X=torch.zeros((1,)).cpu(),
-        #                        Y=torch.zeros((1)).cpu(),
-        #                        opts=dict(xlabel='minibatches',
-        #                                  ylabel='Loss',
-        #                                  title='Trained Loss',
-        #                                  legend=['Loss']))
-        loss_window = vis.line(X=torch.zeros((1,)).cpu(),
-                               Y=torch.zeros((1)).cpu(),
-                               opts=dict(xlabel='minibatches',
-                                         ylabel='Loss',
-                                         title='Training Loss',
-                                         legend=['Loss']))
-        pre_window = vis.image(
-            np.random.rand(256, 512),
-            opts=dict(title='predict!', caption='predict.'),
-        )
-        ground_window = vis.image(
-            np.random.rand(256, 512),
-            opts=dict(title='ground!', caption='ground.'),
-        )
-        image_window = vis.image(
-            np.random.rand(256, 512),
-            opts=dict(title='image!', caption='image.'),
-        )
     # Setup Model
     model = get_model(args.arch)
     # parameters=model.named_parameters()
@@ -76,9 +55,9 @@ def train(args):
     # exit()
 
     model = torch.nn.DataParallel(
-        model, device_ids=range(2))
+        model, device_ids=[0])
     #model = torch.nn.DataParallel(model, device_ids=[0])
-    model.cuda()
+    model.cuda(0)
 
     # Check if model has custom optimizer / loss
     # modify to adam, modify the learning rate
@@ -99,12 +78,13 @@ def train(args):
             #model_dict=model.state_dict()  
             #opt=torch.load('/home/lidong/Documents/cmf/cmf/exp1/l2/sgd/log/83/rsnet_nyu_best_model.pkl')
             model.load_state_dict(checkpoint['model_state'])
-            #optimizer.load_state_dict(checkpoint['optimizer_state'])
+            optimizer.load_state_dict(checkpoint['optimizer_state'])
             #opt=None
             print("Loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
             trained=checkpoint['epoch']
             trained=0
+            best_error=5
             # loss_rec=np.load('/home/lidong/Documents/CMF/loss_8.npy')
             # loss_rec=list(loss_rec)
             # print(train_length)
@@ -113,7 +93,7 @@ def train(args):
     else:
         print("No checkpoint found at '{}'".format(args.resume))
         print('Initialize from resnet34!')
-        resnet34=torch.load('/home/lidong/Documents/CMF/15_cmfsm_sub_16_flying3d_best_model.pkl')
+        resnet34=torch.load('/home/lidong/Documents/CMF/9_cm_sub_4_flying3d_best_model.pkl')
         #optimizer.load_state_dict(resnet34['optimizer_state'])
         #model
         #model.load_state_dict(resnet34['state_dict'])
@@ -148,92 +128,41 @@ def train(args):
 
     #best_error=5
     # it should be range(checkpoint[''epoch],args.n_epoch)
-    for epoch in range(trained, args.n_epoch):
-    #for epoch in range(0, args.n_epoch):
-        
-        #trained
-        print('training!')
-        model.train()
-        for i, (left, right,disparity,image) in enumerate(trainloader):
-            #with torch.no_grad():
-            #print(left.shape)
-            #print(torch.max(image),torch.min(image))
+
+    print('training!')
+    model.eval()
+    loss_3_rec=[]
+    ones=torch.ones(1).cuda(0)
+    zeros=torch.zeros(1).cuda(0)
+    for i, (left, right,disparity,image,index) in enumerate(trainloader):
+        #break
+        with torch.no_grad():
+
             start_time=time.time()
-            left = left.cuda()
-            right = right.cuda()
-            disparity = disparity.cuda()
-            mask = (disparity < 192) & (disparity >= 0)
+            left = left.cuda(0)
+            right = right.cuda(0)
+            disparity = disparity.cuda(0)
+            image=image.cuda(0)
+            mask = (disparity < 192) & (disparity >0)
             mask.detach_()
             optimizer.zero_grad()
             #print(P.shape)
             output1, output2, output3 = model(left,right)
+            #print(output3.shape)
+            # output1 = torch.squeeze(output1, 1)
+
             output1 = torch.squeeze(output1, 1)
             output2 = torch.squeeze(output2, 1)
             output3 = torch.squeeze(output3, 1)
-            # #outputs=outputs
-            loss = 0.5 * F.smooth_l1_loss(output1[mask], disparity[mask],reduction='elementwise_mean') \
-                 + 0.7 * F.smooth_l1_loss(output2[mask], disparity[mask], reduction='elementwise_mean') \
-                 + F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
+            loss = F.l1_loss(output3[mask], disparity[mask],reduction='elementwise_mean')
+            pre = disparity.data.cpu().numpy().astype('uint8')[0,...][:,:-36]
+            print(pre.shape)
+            cv2.imwrite(os.path.join('/home/lidong/Documents/datasets/flying3d/visual',str(index.item())+':'+str(loss.item())+'.png'),pre)
+            image=image.data.cpu().numpy().astype('uint8')[0,...][:,:-36,:]
+            image=np.transpose(image,[1,2,0])
+            print(image.shape)
+            cv2.imwrite(os.path.join('/home/lidong/Documents/datasets/flying3d/visual',str(index.item())+':'+str(loss.item())+'rgb.png'),image)
 
-            #loss=loss/2.2
-            #output3 = model(left,right)
-
-            #loss = F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
-            loss.backward()
-            #parameters=model.named_parameters()
-            optimizer.step()
-            
-            
-            #torch.cuda.empty_cache()
-            #print(loss.item)
-            if args.visdom ==True:
-                vis.line(
-                    X=torch.ones(1).cpu() * i+torch.ones(1).cpu() *(epoch-trained)*train_length,
-                    Y=loss.item()*torch.ones(1).cpu(),
-                    win=loss_window,
-                    update='append')
-                #print(torch.max(output3).item(),torch.min(output3).item())
-                if i%15==0:
-                    #print(output3.shape)
-                    pre = output3.data.cpu().numpy().astype('float32')
-                    pre = pre[0,:,:]
-                    #print(np.max(pre))
-                    #print(pre.shape)
-                    pre = np.reshape(pre, [256,512]).astype('float32')
-                    vis.image(
-                        pre,
-                        opts=dict(title='predict!', caption='predict.'),
-                        win=pre_window,
-                    )
-
-                    ground=disparity.data.cpu().numpy().astype('float32')
-                    ground = ground[0, :, :]
-                    ground = np.reshape(ground, [256,512]).astype('float32')
-                    vis.image(
-                        ground,
-                        opts=dict(title='ground!', caption='ground.'),
-                        win=ground_window,
-                    )
-                    image=image.data.cpu().numpy().astype('float32')
-                    image = image[0,...]
-                    #image=image[0,...]
-                    #print(image.shape,np.min(image))
-                    image = np.reshape(image, [3,256,512]).astype('float32')
-                    vis.image(
-                        image,
-                        opts=dict(title='image!', caption='image.'),
-                        win=image_window,
-                    )            
-            loss_rec.append(loss.item())
-            print(time.time()-start_time)
-            print("data [%d/%d/%d/%d] Loss: %.4f" % (i,train_length, epoch, args.n_epoch,loss.item()/2.2))
-
-        state = {'epoch': epoch+1,
-         'model_state': model.state_dict(),
-         'optimizer_state': optimizer.state_dict()}
-         
-        np.save('loss_16.npy',loss_rec)
-        torch.save(state, "{}_{}_{}_disparity_best_model.pkl".format(epoch,args.arch,args.dataset))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
@@ -247,14 +176,14 @@ if __name__ == '__main__':
                         help='Width of the input image')
     parser.add_argument('--n_epoch', nargs='?', type=int, default=4000,
                         help='# of the epochs')
-    parser.add_argument('--batch_size', nargs='?', type=int, default=2,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=1,
                         help='Batch Size')
-    parser.add_argument('--l_rate', nargs='?', type=float, default=1e-3,
+    parser.add_argument('--l_rate', nargs='?', type=float, default=1e-4,
                         help='Learning Rate')
     parser.add_argument('--feature_scale', nargs='?', type=int, default=1,
                         help='Divider for # of features to use')
     parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/15_cmfsm_sub_16_flying3d_best_model.pkl',
-                        help='Path to previous saved model to restart from /home/lidong/Documents/CMF/42_cmfsm_sub_8_flying3d_disparity_best_model.pkl')
+                        help='Path to previous saved model to restart from /home/lidong/Documents/CMF/9_cm_sub_4_flying3d_best_model.pkl')
     parser.add_argument('--visdom', nargs='?', type=bool, default=True,
                         help='Show visualization(s) on visdom | False by  default')
     args = parser.parse_args()

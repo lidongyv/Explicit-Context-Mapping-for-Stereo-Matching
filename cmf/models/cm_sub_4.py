@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-17 02:47:54
+# @Last Modified time: 2018-11-08 12:48:42
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -127,7 +127,6 @@ class feature_extraction(nn.Module):
     def __init__(self):
         super(feature_extraction, self).__init__()
         self.inplanes = 32
-
         self.firstconv = nn.Sequential(
             convbn(3, 32, 3, 1, 1, 1),
             # nn.GroupNorm(group_dim, 32),
@@ -136,20 +135,22 @@ class feature_extraction(nn.Module):
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True),
-            convbn(32, 32, 3, 1, 1, 1),
-            nn.ReLU(inplace=True))
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1, bias=False))
         self.secondconv = nn.Sequential(
+            nn.GroupNorm(group_dim, 32),
+            nn.ReLU(inplace=True),
             convbn(32, 32, 3, 2, 1, 1),
             nn.ReLU(inplace=True),
             convbn(32, 32, 3, 1, 1, 1),
             nn.ReLU(inplace=True))
-        self.layer1 = self._make_layer(BasicBlock, 32, 3, 2, 1, 1)
+
+        self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
         self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
         self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 2)
         self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 4)
 
         self.branch1 = nn.Sequential(
-            nn.AvgPool2d((4, 4), stride=(4, 4)),
+            nn.AvgPool2d((64, 64), stride=(64, 64)),
             convbn(128, 32, 1, 1, 0, 1),
             nn.ReLU(inplace=True))
 
@@ -197,14 +198,12 @@ class feature_extraction(nn.Module):
 
     def forward(self, x):
         output_all = self.firstconv(x)
-        #print(output_all.shape)
         output=self.secondconv(output_all)
-        #print(output.shape)
         output_rt = self.layer1(output)
         output_raw = self.layer2(output_rt)
         output = self.layer3(output_raw)
         output_skip = self.layer4(output)
-        #print(output_skip.shape)
+
         output_branch1 = self.branch1(output_skip)
         output_branch1 = F.interpolate(
             output_branch1, (output_skip.size()[2], output_skip.size()[3]),
@@ -235,6 +234,8 @@ class feature_extraction(nn.Module):
         output_feature = self.lastconv(output_feature)
 
         return output_feature, output_rt,output_all
+
+
 
 class hourglass(nn.Module):
     def __init__(self, inplanes):
@@ -441,7 +442,7 @@ class six_related_context_mapping(nn.Module):
     def __init__(self):
         super(six_related_context_mapping,self).__init__()
         self.similarity1=similarity_measure1()
-        #self.similarity2=similarity_measure2()
+        self.similarity2=similarity_measure2()
         self.fuse=nn.Sequential(nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0,
                                bias=False,dilation=1),nn.LeakyReLU(inplace=True))
         #self.fuse.weight.data.fill_(1)
@@ -656,13 +657,13 @@ class four_related_context_mapping(nn.Module):
         mapping_norm=F.softmax(mapping_all, dim=1)
         #return mapping,mapping_r,mapping_l,mapping_t,mapping_b
         return torch.chunk(mapping_norm*mapping_all,5,dim=1)
-class cmfsm_sub_8(nn.Module):
+class cm_sub_4(nn.Module):
 
 
     def __init__(self, 
                 maxdisp=192):
 
-        super(cmfsm_sub_8, self).__init__()
+        super(cm_sub_4, self).__init__()
         self.maxdisp = maxdisp
         self.feature_extraction = feature_extraction()
 
@@ -679,24 +680,13 @@ class cmfsm_sub_8(nn.Module):
 
         self.dres2 = hourglass(32)
 
-        self.dres3 = hourglass(32)
-
-        self.dres4 = hourglass(32)
 
         self.classif1 = nn.Sequential(
             convbn_3d(32, 32, 3, 1, 1),
             nn.ReLU(inplace=True),
             nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
 
-        self.classif2 = nn.Sequential(
-            convbn_3d(32, 32, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
 
-        self.classif3 = nn.Sequential(
-            convbn_3d(32, 32, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
         self.mapping_matrix=six_related_context_mapping()
 
 
@@ -733,7 +723,7 @@ class cmfsm_sub_8(nn.Module):
                               refimg_fea.size()[2],
                               refimg_fea.size()[3]).zero_()).cuda()
 
-        for i in range(self.maxdisp // scale):
+        for i in range(self.maxdisp // 4):
             if i > 0:
                 cost[:, :refimg_fea.size()[1], i, :, i:] = refimg_fea[:, :, :,
                                                                       i:]
@@ -748,63 +738,51 @@ class cmfsm_sub_8(nn.Module):
         cost0 = self.dres1(cost0) + cost0
         out1, pre1, post1 = self.dres2(cost0, None, None)
         out1 = out1 + cost0
-
-        out2, pre2, post2 = self.dres3(out1, pre1, post1)
-        out2 = out2 + cost0
-
-        out3, pre3, post3 = self.dres4(out2, pre1, post2)
-        out3 = out3 + cost0
-
         cost1 = self.classif1(out1)
-        cost1=cost1.squeeze(1)
-        pred1 = F.softmax(cost1, dim=1)
-        pred1 = disparityregression(self.maxdisp//scale)(pred1)
+        #cost2 = self.classif2(out2) + cost1
+        #cost3 = self.classif3(out3) + cost2
 
-        pred1 = pred1.unsqueeze(1)
-        pred1=scale*pred1.unsqueeze(-1).expand(pred1.shape[0],pred1.shape[1],pred1.shape[2],pred1.shape[3],scale) \
-                                     .contiguous().view(pred1.shape[0],pred1.shape[1],pred1.shape[2],pred1.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(pred1.shape[0],pred1.shape[1],pred1.shape[2],scale,pred1.shape[3]*scale) \
-                                  .contiguous().view(pred1.shape[0],pred1.shape[1],pred1.shape[2]*scale,pred1.shape[3]*scale)
-        refined_pred1=pred1*mapping
-        refined_pred1[...,:-scale]=refined_pred1[...,:-scale]+pred1[...,scale:]*mapping_r[...,:-scale]
-        refined_pred1[...,scale:]=refined_pred1[...,scale:]+pred1[...,:-scale]*mapping_l[...,scale:]
-        refined_pred1[...,scale:,:]=refined_pred1[...,scale:,:]+pred1[...,:-scale,:]*mapping_t[...,scale:,:]
-        refined_pred1[...,:-scale,:]=refined_pred1[...,:-scale,:]+pred1[...,scale:,:]*mapping_b[...,:-scale,:]
 
-        cost2 = self.classif2(out2)
-        cost2=cost2.squeeze(1)
-        pred2 = F.softmax(cost2, dim=1)
-        pred2 = disparityregression(self.maxdisp//scale)(pred2)
-        pred2 = pred2.unsqueeze(1)
-        pred2=scale*pred2.unsqueeze(-1).expand(pred2.shape[0],pred2.shape[1],pred2.shape[2],pred2.shape[3],scale) \
-                                     .contiguous().view(pred2.shape[0],pred2.shape[1],pred2.shape[2],pred2.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(pred2.shape[0],pred2.shape[1],pred2.shape[2],scale,pred2.shape[3]*scale) \
-                                  .contiguous().view(pred2.shape[0],pred2.shape[1],pred2.shape[2]*scale,pred2.shape[3]*scale)
-        refined_pred2=pred2*mapping
-        refined_pred2[...,:-scale]=refined_pred2[...,:-scale]+pred2[...,scale:]*mapping_r[...,:-scale]
-        refined_pred2[...,scale:]=refined_pred2[...,scale:]+pred2[...,:-scale]*mapping_l[...,scale:]
-        refined_pred2[...,scale:,:]=refined_pred2[...,scale:,:]+pred2[...,:-scale,:]*mapping_t[...,scale:,:]
-        refined_pred2[...,:-scale,:]=refined_pred2[...,:-scale,:]+pred2[...,scale:,:]*mapping_b[...,:-scale,:]
 
-        cost3 = self.classif3(out3)
-        cost3=cost3.squeeze(1)
-        pred3 = F.softmax(cost3, dim=1)
-        pred3 = disparityregression(self.maxdisp//scale)(pred3)
-        pred3 = pred3.unsqueeze(1)
-        pred3=scale*pred3.unsqueeze(-1).expand(pred3.shape[0],pred3.shape[1],pred3.shape[2],pred3.shape[3],scale) \
-                                     .contiguous().view(pred3.shape[0],pred3.shape[1],pred3.shape[2],pred3.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(pred3.shape[0],pred3.shape[1],pred3.shape[2],scale,pred3.shape[3]*scale) \
-                                  .contiguous().view(pred3.shape[0],pred3.shape[1],pred3.shape[2]*scale,pred3.shape[3]*scale)
-        refined_pred3=pred3*mapping
-        refined_pred3[...,:-scale]=refined_pred3[...,:-scale]+pred3[...,scale:]*mapping_r[...,:-scale]
-        refined_pred3[...,scale:]=refined_pred3[...,scale:]+pred3[...,:-scale]*mapping_l[...,scale:]
-        refined_pred3[...,scale:,:]=refined_pred3[...,scale:,:]+pred3[...,:-scale,:]*mapping_t[...,scale:,:]
-        refined_pred3[...,:-scale,:]=refined_pred3[...,:-scale,:]+pred3[...,scale:,:]*mapping_b[...,:-scale,:]
 
-        return refined_pred1, refined_pred2, refined_pred3
+        cost1 = torch.squeeze(cost1, 1)
+        cost1=cost1.unsqueeze(-1).expand(cost1.shape[0],cost1.shape[1],cost1.shape[2],cost1.shape[3],scale) \
+                                     .contiguous().view(cost1.shape[0],cost1.shape[1],cost1.shape[2],cost1.shape[3]*scale) \
+                                  .unsqueeze(-2).expand(cost1.shape[0],cost1.shape[1],cost1.shape[2],scale,cost1.shape[3]*scale) \
+                                  .contiguous().view(cost1.shape[0],cost1.shape[1],cost1.shape[2]*scale,cost1.shape[3]*scale) \
+                                  .unsqueeze(-3).expand(cost1.shape[0],cost1.shape[1],scale,cost1.shape[2]*scale,cost1.shape[3]*scale) \
+                                  .contiguous().view(cost1.shape[0],cost1.shape[1]*scale,cost1.shape[2]*scale,cost1.shape[3]*scale)
+        fused_cost=cost1*mapping
+        fused_cost[...,:-scale]=fused_cost[...,:-scale]+cost1[...,scale:]*mapping_r[...,:-scale]
+        fused_cost[...,scale:]=fused_cost[...,scale:]+cost1[...,:-scale]*mapping_l[...,scale:]
+        fused_cost[...,scale:,:]=fused_cost[...,scale:,:]+cost1[...,:-scale,:]*mapping_t[...,scale:,:]
+        fused_cost[...,:-scale,:]=fused_cost[...,:-scale,:]+cost1[...,scale:,:]*mapping_b[...,:-scale,:]
+        #target
+        #print(cost1.shape)
+        #exit()
+        mapping_target_volume=torch.ones_like(cost1)
+        mapping_target_r_volume=torch.ones_like(cost1)
+        mapping_target_l_volume=torch.ones_like(cost1)
+        for i in range(self.maxdisp):
+            if i>0:
+                #print(mapping_target_volume[:,i,:,i:].shape,mapping_target[:,0,:,:-i].shape)
+                mapping_target_volume[:,i,:,i:]=mapping_target[:,0,:,:-i]
+                mapping_target_r_volume[:,i,:,i:]=mapping_target_r[:,0,:,:-i]
+                mapping_target_l_volume[:,i,:,i:]=mapping_target_l[:,0,:,:-i]
+            else:
+                mapping_target_volume[:,i,:,i:]=mapping_target[:,0,:,:]
+                mapping_target_r_volume[:,i,:,i:]=mapping_target_r[:,0,:,:]
+                mapping_target_l_volume[:,i,:,i:]=mapping_target_l[:,0,:,:]
+
+        fused_cost_target=fused_cost*mapping_target_volume
+        fused_cost_target[:,:-scale,:,:]=fused_cost_target[:,:-scale,:,:]+fused_cost[:,scale:,:,:] *mapping_target_l_volume[:,:-scale,:,:]
+        fused_cost_target[:,scale:,:,:] =fused_cost_target[:,scale:,:,:] +fused_cost[:,:-scale,:,:]*mapping_target_r_volume[:,scale:,:,:]
+
+        pred1 = F.softmax(fused_cost_target, dim=1)
+        pred1 = disparityregression(self.maxdisp)(pred1)
+
+        return pred1,pred1,pred1
         #return pred3
-
-
 
 
 

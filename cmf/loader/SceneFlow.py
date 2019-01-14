@@ -2,17 +2,15 @@
 # @Author: yulidong
 # @Date:   2018-03-19 13:33:07
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-10-14 14:35:40
+# @Last Modified time: 2018-11-01 00:56:12
 
 import os
 import torch
 import numpy as np
 from torch.utils import data
-from cmf.utils import recursive_glob
 import torchvision.transforms as transforms
-
+import random
 class SceneFlow(data.Dataset):
-
 
     def __init__(self, root, split="train", is_transform=True, img_size=(540,960)):
         """__init__
@@ -23,29 +21,22 @@ class SceneFlow(data.Dataset):
         :param img_size:
         """
         self.is_transform = is_transform
-        self.n_classes = 9  # 0 is reserved for "other"
         self.img_size = img_size if isinstance(img_size, tuple) else (540, 960)
         self.stats={'mean': [0.485, 0.456, 0.406],
                    'std': [0.229, 0.224, 0.225]}
-        self.left_files = {}
+        self.files = {}
         self.datapath=root
-        if split=='train':
-            self.left_files=os.listdir(os.path.join(self.datapath,'left_re'))
-            self.match_files=os.listdir(os.path.join(self.datapath,'match_re'))
-            self.left_files.sort()
-        else:
-            self.left_files=os.listdir(os.path.join(self.datapath,'test','left'))
-            self.left_files.sort()            
-        self.task='generation'
+        self.files=np.load('/home/lidong/Documents/datasets/flying3d/all.npy')
+        self.files.sort()          
         self.split=split
-        if len(self.left_files)<1:
+        if len(self.files)<1:
             raise Exception("No files for ld=[%s] found in %s" % (split, self.ld))
-
-        print("Found %d in %s data" % (len(self.left_files), self.datapath))
+        self.length=self.__len__()
+        print("Found %d in %s data" % (len(self.files), self.datapath))
 
     def __len__(self):
         """__len__"""
-        return len(self.left_files)
+        return len(self.files)
 
     def __getitem__(self, index):
         """__getitem__
@@ -53,59 +44,51 @@ class SceneFlow(data.Dataset):
         :param index:
         """
         #index=58
-        if self.split=='test':
-            data=np.load(os.path.join(self.datapath,self.split,'left',self.left_files[index]))
-            print(os.path.join(self.datapath,self.split,'left',self.left_files[index]))
-            data=data[:540,:960,:]
-            left=data[...,0:3]/255
-            #print(data.shape)
-            right=data[...,3:6]/255
-            disparity=data[...,6]
-            P=data[...,7:]
-            pre_match=np.load(os.path.join(self.datapath,self.split,'match',self.left_files[index]))
+
+        data=np.load(self.files[index])
+        #print(os.path.join(self.datapath,self.split,self.files[index]))
+        if self.split=='train':
+            h,w = data.shape[0],data.shape[1]
+            th, tw = 256, 512
+            x1 = random.randint(0, h - th)
+            y1 = random.randint(0, w - tw)
+            data=data[x1:x1+th,y1:y1+tw,:]
         else:
-            data=np.load(os.path.join(self.datapath,'left_re',self.left_files[index]))
-            print(os.path.join(self.datapath,'left_re',self.left_files[index]))
-            data=data[:540,:960,:]
-            left=data[...,0:3]/255
-            #print(data.shape)
-            right=data[...,3:6]/255
-            disparity=data[...,6]
-            P=data[...,7:]
-            pre_match=np.load(os.path.join(self.datapath,'match_re',self.left_files[index]))
-        #matching=np.load(os.path.join(self.datapath,'matching',self.left_files[index]))
-        # aggregation=np.load(os.path.join(self.datapath,'aggregation',self.left_files[index]))
-        #print('load')
+            h,w = data.shape[0],data.shape[1]
+            padding=np.zeros([4,data.shape[1],data.shape[2]])
+            th, tw = 540, 960
+            x1 = 0
+            y1 = 0
+            data=data[x1:th,y1:tw,:]
+            data=np.concatenate([data,padding],0)
+        #data=data[:540,:960,:]
+        left=data[...,0:3]/255
+        #
+        image=data[...,0:3]
+        image=transforms.ToTensor()(image)
+        #print(torch.max(image),torch.min(image))
+        right=data[...,3:6]/255
+        disparity=data[...,6]
+        # print(np.sum(np.where(disparity[:540,...]==0,np.ones(1),np.zeros(1))))
+        # print(np.sum(np.where(disparity[:540,...]<=1,np.ones(1),np.zeros(1))))
+        # print(np.sum(np.where(disparity<=2,np.ones(1),np.zeros(1))))
+        # print(np.sum(np.where(disparity<=3,np.ones(1),np.zeros(1))))
+        # print(disparity.shape)
         if self.is_transform:
-            left, right,disparity,P,pre_match,pre2 = self.transform(left, right,disparity,P,pre_match)
-        if self.task=='generation':
-            #print('value')
-            return left, right,disparity,P,pre_match,pre2
-        else:
-            return left, right,disparity,P,pre_match,pre2
-    def transform(self, left, right,disparity,P,pre):
+            left, right,disparity = self.transform(left, right,disparity)
+        #print(torch.max(left),torch.min(left))
+        return left, right,disparity,image
+    def transform(self, left, right,disparity):
         """transform
         """
         trans=transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize(**self.stats),
         ])
-        # left=transforms.ToTensor()(left)
-        # left=transforms.Normalize(**self.stats)(left)
      
         left=trans(left).float()
         right=trans(right).float()
 
         disparity=torch.from_numpy(disparity).float()
-        P=torch.from_numpy(P).float()
-        #print(torch.max(disparity).item())
 
-        pre1=torch.from_numpy(pre[1,0]).float()
-
-        #max 142
-        pre2=torch.from_numpy(pre[0,0][0]).float()
-        #print(pre2.shape)
-        #pre2=torch.cat([pre2,torch.zeros([pre2.shape[0],100-pre2.shape[1],pre2.shape[2],pre2.shape[3],pre2.shape[4],pre2.shape[5],pre2.shape[6]])])
-
-        #print(pre1.shape)
-        return left,right,disparity,P,pre2,pre1
+        return left,right,disparity

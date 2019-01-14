@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-17 02:47:54
+# @Last Modified time: 2018-11-17 02:54:12
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -123,6 +123,7 @@ class disparityregression(nn.Module):
         return out
 
 
+
 class feature_extraction(nn.Module):
     def __init__(self):
         super(feature_extraction, self).__init__()
@@ -145,7 +146,7 @@ class feature_extraction(nn.Module):
             nn.ReLU(inplace=True))
         self.layer1 = self._make_layer(BasicBlock, 32, 3, 2, 1, 1)
         self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
-        self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 2)
+        self.layer3 = self._make_layer(BasicBlock, 128, 3, 2, 1, 1)
         self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 4)
 
         self.branch1 = nn.Sequential(
@@ -154,7 +155,7 @@ class feature_extraction(nn.Module):
             nn.ReLU(inplace=True))
 
         self.branch2 = nn.Sequential(
-            nn.AvgPool2d((32, 32), stride=(32, 32)),
+            nn.AvgPool2d((2, 2), stride=(2, 2)),
             convbn(128, 32, 1, 1, 0, 1),
             nn.ReLU(inplace=True))
 
@@ -168,8 +169,8 @@ class feature_extraction(nn.Module):
             convbn(128, 32, 1, 1, 0, 1),
             nn.ReLU(inplace=True))
 
-        self.lastconv = nn.Sequential(
-            convbn(320, 128, 3, 1, 1, 1),
+        self.lastconv_16 = nn.Sequential(
+            convbn(384, 128, 3, 1, 1, 1),
             nn.ReLU(inplace=True),
             nn.Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
 
@@ -202,8 +203,8 @@ class feature_extraction(nn.Module):
         #print(output.shape)
         output_rt = self.layer1(output)
         output_raw = self.layer2(output_rt)
-        output = self.layer3(output_raw)
-        output_skip = self.layer4(output)
+        output_raw = self.layer3(output_raw)
+        output_skip = self.layer4(output_raw)
         #print(output_skip.shape)
         output_branch1 = self.branch1(output_skip)
         output_branch1 = F.interpolate(
@@ -228,11 +229,12 @@ class feature_extraction(nn.Module):
             output_branch4, (output_skip.size()[2], output_skip.size()[3]),
             mode='bilinear',
             align_corners=False)
-
+        # print(output_branch4.shape, output_branch3.shape,
+        #      output_branch2.shape, output_branch1.shape)
         output_feature = torch.cat(
             (output_raw, output_skip, output_branch4, output_branch3,
              output_branch2, output_branch1), 1)
-        output_feature = self.lastconv(output_feature)
+        output_feature = self.lastconv_16(output_feature)
 
         return output_feature, output_rt,output_all
 
@@ -656,13 +658,13 @@ class four_related_context_mapping(nn.Module):
         mapping_norm=F.softmax(mapping_all, dim=1)
         #return mapping,mapping_r,mapping_l,mapping_t,mapping_b
         return torch.chunk(mapping_norm*mapping_all,5,dim=1)
-class cmfsm_sub_8(nn.Module):
+class cmfsm_sub_16(nn.Module):
 
 
     def __init__(self, 
                 maxdisp=192):
 
-        super(cmfsm_sub_8, self).__init__()
+        super(cmfsm_sub_16, self).__init__()
         self.maxdisp = maxdisp
         self.feature_extraction = feature_extraction()
 
@@ -756,55 +758,97 @@ class cmfsm_sub_8(nn.Module):
         out3 = out3 + cost0
 
         cost1 = self.classif1(out1)
-        cost1=cost1.squeeze(1)
-        pred1 = F.softmax(cost1, dim=1)
-        pred1 = disparityregression(self.maxdisp//scale)(pred1)
+        #cost2 = self.classif2(out2) + cost1
+        #cost3 = self.classif3(out3) + cost2
 
-        pred1 = pred1.unsqueeze(1)
-        pred1=scale*pred1.unsqueeze(-1).expand(pred1.shape[0],pred1.shape[1],pred1.shape[2],pred1.shape[3],scale) \
-                                     .contiguous().view(pred1.shape[0],pred1.shape[1],pred1.shape[2],pred1.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(pred1.shape[0],pred1.shape[1],pred1.shape[2],scale,pred1.shape[3]*scale) \
-                                  .contiguous().view(pred1.shape[0],pred1.shape[1],pred1.shape[2]*scale,pred1.shape[3]*scale)
-        refined_pred1=pred1*mapping
-        refined_pred1[...,:-scale]=refined_pred1[...,:-scale]+pred1[...,scale:]*mapping_r[...,:-scale]
-        refined_pred1[...,scale:]=refined_pred1[...,scale:]+pred1[...,:-scale]*mapping_l[...,scale:]
-        refined_pred1[...,scale:,:]=refined_pred1[...,scale:,:]+pred1[...,:-scale,:]*mapping_t[...,scale:,:]
-        refined_pred1[...,:-scale,:]=refined_pred1[...,:-scale,:]+pred1[...,scale:,:]*mapping_b[...,:-scale,:]
+
+
+
+        cost1 = torch.squeeze(cost1, 1)
+        cost1=cost1.unsqueeze(-1).expand(cost1.shape[0],cost1.shape[1],cost1.shape[2],cost1.shape[3],scale) \
+                                     .contiguous().view(cost1.shape[0],cost1.shape[1],cost1.shape[2],cost1.shape[3]*scale) \
+                                  .unsqueeze(-2).expand(cost1.shape[0],cost1.shape[1],cost1.shape[2],scale,cost1.shape[3]*scale) \
+                                  .contiguous().view(cost1.shape[0],cost1.shape[1],cost1.shape[2]*scale,cost1.shape[3]*scale) \
+                                  .unsqueeze(-3).expand(cost1.shape[0],cost1.shape[1],scale,cost1.shape[2]*scale,cost1.shape[3]*scale) \
+                                  .contiguous().view(cost1.shape[0],cost1.shape[1]*scale,cost1.shape[2]*scale,cost1.shape[3]*scale)
+        fused_cost=cost1*mapping
+        fused_cost[...,:-scale]=fused_cost[...,:-scale]+cost1[...,scale:]*mapping_r[...,:-scale]
+        fused_cost[...,scale:]=fused_cost[...,scale:]+cost1[...,:-scale]*mapping_l[...,scale:]
+        fused_cost[...,scale:,:]=fused_cost[...,scale:,:]+cost1[...,:-scale,:]*mapping_t[...,scale:,:]
+        fused_cost[...,:-scale,:]=fused_cost[...,:-scale,:]+cost1[...,scale:,:]*mapping_b[...,:-scale,:]
+        #target
+        #print(cost1.shape)
+        #exit()
+        mapping_target_volume=torch.ones_like(cost1)
+        mapping_target_r_volume=torch.ones_like(cost1)
+        mapping_target_l_volume=torch.ones_like(cost1)
+        for i in range(self.maxdisp):
+            if i>0:
+                #print(mapping_target_volume[:,i,:,i:].shape,mapping_target[:,0,:,:-i].shape)
+                mapping_target_volume[:,i,:,i:]=mapping_target[:,0,:,:-i]
+                mapping_target_r_volume[:,i,:,i:]=mapping_target_r[:,0,:,:-i]
+                mapping_target_l_volume[:,i,:,i:]=mapping_target_l[:,0,:,:-i]
+            else:
+                mapping_target_volume[:,i,:,i:]=mapping_target[:,0,:,:]
+                mapping_target_r_volume[:,i,:,i:]=mapping_target_r[:,0,:,:]
+                mapping_target_l_volume[:,i,:,i:]=mapping_target_l[:,0,:,:]
+
+        fused_cost_target=fused_cost*mapping_target_volume
+        fused_cost_target[:,:-scale,:,:]=fused_cost_target[:,:-scale,:,:]+fused_cost[:,scale:,:,:] *mapping_target_l_volume[:,:-scale,:,:]
+        fused_cost_target[:,scale:,:,:] =fused_cost_target[:,scale:,:,:] +fused_cost[:,:-scale,:,:]*mapping_target_r_volume[:,scale:,:,:]
+
+        pred1 = F.softmax(fused_cost_target, dim=1)
+        pred1 = disparityregression(self.maxdisp)(pred1)
+
 
         cost2 = self.classif2(out2)
-        cost2=cost2.squeeze(1)
-        pred2 = F.softmax(cost2, dim=1)
-        pred2 = disparityregression(self.maxdisp//scale)(pred2)
-        pred2 = pred2.unsqueeze(1)
-        pred2=scale*pred2.unsqueeze(-1).expand(pred2.shape[0],pred2.shape[1],pred2.shape[2],pred2.shape[3],scale) \
-                                     .contiguous().view(pred2.shape[0],pred2.shape[1],pred2.shape[2],pred2.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(pred2.shape[0],pred2.shape[1],pred2.shape[2],scale,pred2.shape[3]*scale) \
-                                  .contiguous().view(pred2.shape[0],pred2.shape[1],pred2.shape[2]*scale,pred2.shape[3]*scale)
-        refined_pred2=pred2*mapping
-        refined_pred2[...,:-scale]=refined_pred2[...,:-scale]+pred2[...,scale:]*mapping_r[...,:-scale]
-        refined_pred2[...,scale:]=refined_pred2[...,scale:]+pred2[...,:-scale]*mapping_l[...,scale:]
-        refined_pred2[...,scale:,:]=refined_pred2[...,scale:,:]+pred2[...,:-scale,:]*mapping_t[...,scale:,:]
-        refined_pred2[...,:-scale,:]=refined_pred2[...,:-scale,:]+pred2[...,scale:,:]*mapping_b[...,:-scale,:]
+        cost2 = torch.squeeze(cost2, 1)
+        cost2=cost2.unsqueeze(-1).expand(cost2.shape[0],cost2.shape[1],cost2.shape[2],cost2.shape[3],scale) \
+                                     .contiguous().view(cost2.shape[0],cost2.shape[1],cost2.shape[2],cost2.shape[3]*scale) \
+                                  .unsqueeze(-2).expand(cost2.shape[0],cost2.shape[1],cost2.shape[2],scale,cost2.shape[3]*scale) \
+                                  .contiguous().view(cost2.shape[0],cost2.shape[1],cost2.shape[2]*scale,cost2.shape[3]*scale) \
+                                  .unsqueeze(-3).expand(cost2.shape[0],cost2.shape[1],scale,cost2.shape[2]*scale,cost2.shape[3]*scale) \
+                                  .contiguous().view(cost2.shape[0],cost2.shape[1]*scale,cost2.shape[2]*scale,cost2.shape[3]*scale)+cost1
+        fused_cost=cost2*mapping
+        fused_cost[...,:-scale]=fused_cost[...,:-scale]+cost2[...,scale:]*mapping_r[...,:-scale]
+        fused_cost[...,scale:]=fused_cost[...,scale:]+cost2[...,:-scale]*mapping_l[...,scale:]
+        fused_cost[...,scale:,:]=fused_cost[...,scale:,:]+cost2[...,:-scale,:]*mapping_t[...,scale:,:]
+        fused_cost[...,:-scale,:]=fused_cost[...,:-scale,:]+cost2[...,scale:,:]*mapping_b[...,:-scale,:]
+        #target
+        fused_cost_target=fused_cost*mapping_target_volume
+        fused_cost_target[:,:-scale,:,:]=fused_cost_target[:,:-scale,:,:]+fused_cost[:,scale:,:,:] *mapping_target_l_volume[:,:-scale,:,:]
+        fused_cost_target[:,scale:,:,:] =fused_cost_target[:,scale:,:,:] +fused_cost[:,:-scale,:,:]*mapping_target_r_volume[:,scale:,:,:]
+        pred2 = F.softmax(fused_cost_target, dim=1)
+        pred2 = disparityregression(self.maxdisp)(pred2)
 
         cost3 = self.classif3(out3)
-        cost3=cost3.squeeze(1)
-        pred3 = F.softmax(cost3, dim=1)
-        pred3 = disparityregression(self.maxdisp//scale)(pred3)
-        pred3 = pred3.unsqueeze(1)
-        pred3=scale*pred3.unsqueeze(-1).expand(pred3.shape[0],pred3.shape[1],pred3.shape[2],pred3.shape[3],scale) \
-                                     .contiguous().view(pred3.shape[0],pred3.shape[1],pred3.shape[2],pred3.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(pred3.shape[0],pred3.shape[1],pred3.shape[2],scale,pred3.shape[3]*scale) \
-                                  .contiguous().view(pred3.shape[0],pred3.shape[1],pred3.shape[2]*scale,pred3.shape[3]*scale)
-        refined_pred3=pred3*mapping
-        refined_pred3[...,:-scale]=refined_pred3[...,:-scale]+pred3[...,scale:]*mapping_r[...,:-scale]
-        refined_pred3[...,scale:]=refined_pred3[...,scale:]+pred3[...,:-scale]*mapping_l[...,scale:]
-        refined_pred3[...,scale:,:]=refined_pred3[...,scale:,:]+pred3[...,:-scale,:]*mapping_t[...,scale:,:]
-        refined_pred3[...,:-scale,:]=refined_pred3[...,:-scale,:]+pred3[...,scale:,:]*mapping_b[...,:-scale,:]
-
-        return refined_pred1, refined_pred2, refined_pred3
+        cost3 = torch.squeeze(cost3, 1)
+        cost3=cost3.unsqueeze(-1).expand(cost3.shape[0],cost3.shape[1],cost3.shape[2],cost3.shape[3],scale) \
+                                     .contiguous().view(cost3.shape[0],cost3.shape[1],cost3.shape[2],cost3.shape[3]*scale) \
+                                  .unsqueeze(-2).expand(cost3.shape[0],cost3.shape[1],cost3.shape[2],scale,cost3.shape[3]*scale) \
+                                  .contiguous().view(cost3.shape[0],cost3.shape[1],cost3.shape[2]*scale,cost3.shape[3]*scale) \
+                                  .unsqueeze(-3).expand(cost3.shape[0],cost3.shape[1],scale,cost3.shape[2]*scale,cost3.shape[3]*scale) \
+                                  .contiguous().view(cost3.shape[0],cost3.shape[1]*scale,cost3.shape[2]*scale,cost3.shape[3]*scale)+cost2
+        #cost3=cost3*mapping
+        fused_cost=cost3*mapping
+        # print(mapping.squeeze()[100:112,100:112])
+        # print(torch.mean(fused_cost/cost3-1).item())
+        fused_cost[...,:-scale]=fused_cost[...,:-scale]+cost3[...,scale:]*mapping_r[...,:-scale]
+        #print(torch.mean(fused_cost/cost3-1).item())
+        fused_cost[...,scale:]=fused_cost[...,scale:]+cost3[...,:-scale]*mapping_l[...,scale:]
+        #print(torch.mean(fused_cost/cost3-1).item())
+        fused_cost[...,scale:,:]=fused_cost[...,scale:,:]+cost3[...,:-scale,:]*mapping_t[...,scale:,:]
+        #print(torch.mean(fused_cost/cost3-1).item())
+        fused_cost[...,:-scale,:]=fused_cost[...,:-scale,:]+cost3[...,scale:,:]*mapping_b[...,:-scale,:]
+        #target
+        fused_cost_target=fused_cost*mapping_target_volume
+        fused_cost_target[:,:-scale,:,:]=fused_cost_target[:,:-scale,:,:]+fused_cost[:,scale:,:,:] *mapping_target_l_volume[:,:-scale,:,:]
+        fused_cost_target[:,scale:,:,:] =fused_cost_target[:,scale:,:,:] +fused_cost[:,:-scale,:,:]*mapping_target_r_volume[:,scale:,:,:]
+        pred3 = F.softmax(fused_cost_target, dim=1)
+        pred3 = disparityregression(self.maxdisp)(pred3)
+        #pred3 = self.srr(pred3, left, refimg_fea, half)
+        return pred1, pred2, pred3
         #return pred3
-
-
 
 
 
