@@ -1,27 +1,19 @@
 # -*- coding: utf-8 -*-
 # @Author: yulidong
-# @Date:   2018-04-25 23:06:40
+# @Date:   2018-03-19 13:33:07
 # @Last Modified by:   yulidong
-# @Last Modified time: 2019-01-14 13:17:17
-
-
+# @Last Modified time: 2018-11-17 00:34:14
 
 import os
 import torch
 import numpy as np
-import scipy.misc as m
-import cv2
 from torch.utils import data
-from python_pfm import *
-from rsden.utils import recursive_glob
 import torchvision.transforms as transforms
-from PIL import Image
-#img=np.array(Image.open('/home/lidong/Documents/datasets/single_driver/data_depth_annotated/train/2011_09_28_drive_0094_sync/proj_depth/groundtruth/image_02/0000000005.png'),dtype=int)
-
+import random
 class KITTI(data.Dataset):
 
 
-    def __init__(self, root, split="train", is_transform=True):
+    def __init__(self, root, split="train", is_transform=True, img_size=(540,960)):
         """__init__
 
         :param root:
@@ -29,74 +21,89 @@ class KITTI(data.Dataset):
         :param is_transform:
         :param img_size:
         """
-        self.root = root
-        self.split = split
-        self.num=0
         self.is_transform = is_transform
-        self.mean = np.array([104.00699, 116.66877, 122.67892])
-        self.path=os.path.join(self.root,self.split)
-        self.images=np.load(os.path.join(self.path,'kitti_images.npy'))
-        self.grounds=np.load(os.path.join(self.path,'kitti_ground.npy'))
-        if len(self.images)<1:
-            raise Exception("No files for %s found in %s" % (split, self.path))
+        self.img_size = img_size if isinstance(img_size, tuple) else (540, 960)
+        self.stats={'mean': [0.485, 0.456, 0.406],
+                   'std': [0.229, 0.224, 0.225]}
+        self.files = {}
+        self.datapath=root
+        self.files=os.listdir(os.path.join(self.datapath,'train_all'))
+        self.files.sort()          
+        self.split=split
+        if len(self.files)<1:
+            raise Exception("No files for ld=[%s] found in %s" % (split, self.ld))
+        self.length=self.__len__()
+        print("Found %d in %s data" % (len(self.files), self.datapath))
 
-        print("Found %d in %s images" % (len(self.images), self.path))
     def __len__(self):
         """__len__"""
-        return len(self.images)
+        return len(self.files)
 
     def __getitem__(self, index):
         """__getitem__
 
         :param index:
         """
-        #data=np.load(os.path.join(self.path,self.files[index]))
-        img = np.array(Image.open(self.images[index]),dtype=int)
-        #dis=np.array(dis[0], dtype=np.uint8)
+        #index=58
 
-        depth = np.array(Image.open(self.grounds[index]),dtype=int)
+        data=np.load(os.path.join(self.datapath,'train_all',self.files[index]))
+        #print(os.path.join(self.datapath,self.split,self.files[index]))
+        if self.split=='train' or self.split=='train_all':
+            position=np.nonzero(data[...,6])
+            hmin=np.min(position[0])
+            hmax=np.max(position[0])
+            wmin=np.min(position[1])
+            wmax=np.max(position[1])
+            if hmax-hmin<=256:
+                hmin=hmax-256
+            if wmax-wmin<=512:
+                wmax=wmin+512
+            th, tw = 256, 512
+            x1 = random.randint(hmin, hmax - th)
+            y1 = random.randint(wmin, wmax - tw)
+            data=data[x1:x1+th,y1:y1+tw,:]
+        else:
+            h,w = data.shape[0],data.shape[1]
+            th, tw = 384, 1248
+            x1 = 0
+            y1 = 0
+            padding_h=data[:(th-h),:,:]
+            padding_h[:,:,6]=0
+            data=np.concatenate([padding_h,data],0)
+            padding_w=data[:,:(tw-w),:]
+            padding_w[:,:,6]=0
+            data=np.concatenate([padding_w,data],1)
+            #data[:(th-h),:(tw-w),6]=0
+        #data=data[:540,:960,:]
+        left=data[...,0:3]/255
+        #
+        image=data[...,0:3]
+        image=transforms.ToTensor()(image)
+        #print(torch.max(image),torch.min(image))
+        right=data[...,3:6]/255
+        disparity=data[...,6]
+        # print(np.sum(np.where(disparity[:540,...]==0,np.ones(1),np.zeros(1))))
+        # print(np.sum(np.where(disparity[:540,...]<=1,np.ones(1),np.zeros(1))))
+        # print(np.sum(np.where(disparity<=2,np.ones(1),np.zeros(1))))
+        # print(np.sum(np.where(disparity<=3,np.ones(1),np.zeros(1))))
+        # print(disparity.shape)
         if self.is_transform:
-            img, depth= self.transform(img, depth)
-
-        return img, depth
-
-    def transform(self, img, depth):
+            left, right,disparity = self.transform(left, right,disparity)
+        if self.split=='test':
+            return left, right,disparity,image,self.files[index].split('.')[0],h,w
+        #print(torch.max(left),torch.min(left))
+        return left, right,disparity,image
+    def transform(self, left, right,disparity):
         """transform
-
-        :param img:
-        :param depth:
         """
-        img = img[:,:,:]
-        #print(img.shape)
-        img = img.astype(np.float64)
-        # Resize scales images from 0 to 255, thus we need
-        # to divide by 255.0
-        #img = torch.from_numpy(img).float()
-        depth = torch.from_numpy(depth).float()/256
+        trans=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(**self.stats),
+        ])
+     
+        left=trans(left).float()
+        right=trans(right).float()
 
-        #img = img.astype(float) / 255.0
-        # NHWC -> NCHW
-        #img = img.transpose(1,2,0)
-        totensor=transforms.ToTensor()
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-        img=totensor(img)
-        img=normalize(img)
-        #depth=depth[0,:,:]
-        #depth = depth.astype(float)/32
-        #depth = np.round(depth)
-        #depth = m.imresize(depth, (self.img_size[0], self.img_size[1]), 'nearest', mode='F')
-        #depth = depth.astype(int)
-        #depth=np.reshape(depth,[1,depth.shape[0],depth.shape[1]])
-        #classes = np.unique(depth)
-        #print(classes)
-        #depth = depth.transpose(2,0,1)
-        #if not np.all(classes == np.unique(depth)):
-        #    print("WARN: resizing segmentss yielded fewer classes")
+        disparity=torch.from_numpy(disparity).float()
 
-        #if not np.all(classes < self.n_classes):
-        #    raise ValueError("Segmentation map contained invalid class values")
-
-
-
-        return img, depth,segments
+        return left,right,disparity
