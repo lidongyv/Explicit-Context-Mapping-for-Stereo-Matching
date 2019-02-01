@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-16 22:21:05
+# @Last Modified time: 2019-01-29 14:32:03
 import sys
 import torch
 import visdom
@@ -36,28 +36,28 @@ def train(args):
     v_loader = data_loader(data_path, is_transform=True,
                            split='eval', img_size=(args.img_rows, args.img_cols))
     valloader = data.DataLoader(
-        v_loader, batch_size=args.batch_size, num_workers=2, shuffle=False)
-    train_length=t_loader.length//2
-    test_length=v_loader.length//2
+        v_loader, batch_size=args.batch_size, num_workers=1, shuffle=False)
+    train_length=t_loader.length
+    test_length=v_loader.length
     trainloader = data.DataLoader(
-        t_loader, batch_size=args.batch_size, num_workers=2, shuffle=False)
+        t_loader, batch_size=args.batch_size, num_workers=1, shuffle=False)
     valloader = data.DataLoader(
-        v_loader, batch_size=args.batch_size, num_workers=2, shuffle=False)
+        v_loader, batch_size=args.batch_size, num_workers=1, shuffle=False)
 
 
+    with torch.no_grad():
+        # Setup Model
+        model = get_model(args.arch)
+        # parameters=model.named_parameters()
+        # for name,param in parameters:
+        #     print(name)
+        #     print(param.grad)
+        # exit()
 
-    # Setup Model
-    model = get_model(args.arch)
-    # parameters=model.named_parameters()
-    # for name,param in parameters:
-    #     print(name)
-    #     print(param.grad)
-    # exit()
-
-    model = torch.nn.DataParallel(
-        model, device_ids=[2,3])
-    #model = torch.nn.DataParallel(model, device_ids=[0])
-    model.cuda(2)
+        model = torch.nn.DataParallel(
+            model, device_ids=[0])
+        #model = torch.nn.DataParallel(model, device_ids=[0])
+        model.cuda()
 
     # Check if model has custom optimizer / loss
     # modify to adam, modify the learning rate
@@ -132,21 +132,21 @@ def train(args):
     print('training!')
     model.eval()
     loss_3_rec=[]
-    ones=torch.ones(1).cuda(2)
-    zeros=torch.zeros(1).cuda(2)
+    ones=torch.ones(1).cuda()
+    zeros=torch.zeros(1).cuda()
     for i, (left, right,disparity,image,name,h,w) in enumerate(trainloader):
         #break
         with torch.no_grad():
             #print(left.shape)
-            print(name[0],name[1])
+            print(name[0])
             #print(torch.max(image),torch.min(image))
             h=h.data.cpu().numpy().astype('int32')
             #h=h.astype('int')
             w=w.data.cpu().numpy().astype('int32')
             start_time=time.time()
-            left = left.cuda(2)
-            right = right.cuda(2)
-            disparity = disparity.cuda(2)
+            left = left.cuda()
+            right = right.cuda()
+            disparity = disparity.cuda()
             mask = (disparity < 192) & (disparity >0)
             mask.detach_()
             optimizer.zero_grad()
@@ -167,12 +167,12 @@ def train(args):
             #print(pre.shape)
             pre = np.reshape(pre, [h[0],w[0]])
             cv2.imwrite(os.path.join('/home/lidong/Documents/datasets/kitti/disp_0',name[0]+'.png'),pre)
-            pre = output3.data.cpu().numpy().astype('uint16')
-            pre = pre[1,-h[1]:,-w[1]:]
-            #print(np.max(pre))
-            #print(pre.shape)
-            pre = np.reshape(pre, [h[1],w[1]])
-            cv2.imwrite(os.path.join('/home/lidong/Documents/datasets/kitti/disp_0',name[1]+'.png'),pre)
+            # pre = output3.data.cpu().numpy().astype('uint16')
+            # pre = pre[1,-h[1]:,-w[1]:]
+            # #print(np.max(pre))
+            # #print(pre.shape)
+            # pre = np.reshape(pre, [h[1],w[1]])
+            # cv2.imwrite(os.path.join('/home/lidong/Documents/datasets/kitti/disp_0',name[1]+'.png'),pre)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
@@ -186,15 +186,15 @@ if __name__ == '__main__':
                         help='Width of the input image')
     parser.add_argument('--n_epoch', nargs='?', type=int, default=4000,
                         help='# of the epochs')
-    parser.add_argument('--batch_size', nargs='?', type=int, default=2,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=1,
                         help='Batch Size')
     parser.add_argument('--l_rate', nargs='?', type=float, default=1e-4,
                         help='Learning Rate')
     parser.add_argument('--feature_scale', nargs='?', type=int, default=1,
                         help='Divider for # of features to use')
-    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/675_cmfsm_kitti_1.571477737426758_best_model.pkl',
+    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/100_cmfsm_kitti_2.294239044189453_six_best_model.pkl',
                         help='Path to previous saved model to restart from /home/lidong/Documents/CMF/9_cm_sub_4_flying3d_best_model.pkl')
-    parser.add_argument('--visdom', nargs='?', type=bool, default=True,
+    parser.add_argument('--visdom', nargs='?', type=bool, default=False,
                         help='Show visualization(s) on visdom | False by  default')
     args = parser.parse_args()
     train(args)

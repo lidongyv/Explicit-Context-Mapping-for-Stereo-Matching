@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-03-19 13:33:07
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-17 00:34:14
+# @Last Modified time: 2019-02-01 17:19:47
 
 import os
 import torch
@@ -10,6 +10,33 @@ import numpy as np
 from torch.utils import data
 import torchvision.transforms as transforms
 import random
+import torchvision.transforms as transforms
+import torchvision.transforms.functional as tf
+import torch.nn.functional as F
+class Lighting(object):
+    """Lighting noise(AlexNet - style PCA - based noise)"""
+
+    def __init__(self):
+        self.alphastd = 0.1
+        self.eigval = torch.Tensor([0.2175, 0.0188, 0.0045])
+        self.eigvec = torch.Tensor([
+                [-0.5675,  0.7192,  0.4009],
+                [-0.5808, -0.0045, -0.8140],
+                [-0.5836, -0.6948,  0.4203],
+            ])
+
+    def __call__(self, img):
+        if self.alphastd == 0:
+            return img
+
+        alpha = img.new().resize_(3).normal_(0, self.alphastd)
+        rgb = self.eigvec.type_as(img).clone()\
+            .mul(alpha.view(1, 3).expand(3, 3))\
+            .mul(self.eigval.view(1, 3).expand(3, 3))\
+            .sum(1).squeeze()
+
+        return img.add(rgb.view(3, 1, 1).expand_as(img))
+
 class KITTI(data.Dataset):
 
 
@@ -25,6 +52,7 @@ class KITTI(data.Dataset):
         self.img_size = img_size if isinstance(img_size, tuple) else (540, 960)
         self.stats={'mean': [0.485, 0.456, 0.406],
                    'std': [0.229, 0.224, 0.225]}
+        self.pca = Lighting()
         self.files = {}
         self.datapath=root
         self.files=os.listdir(os.path.join(self.datapath,'train_all'))
@@ -45,7 +73,7 @@ class KITTI(data.Dataset):
         :param index:
         """
         #index=58
-
+        #print(os.path.join(self.datapath,'train_all',self.files[index]))
         data=np.load(os.path.join(self.datapath,'train_all',self.files[index]))
         #print(os.path.join(self.datapath,self.split,self.files[index]))
         if self.split=='train' or self.split=='train_all':
@@ -77,8 +105,8 @@ class KITTI(data.Dataset):
         #data=data[:540,:960,:]
         left=data[...,0:3]/255
         #
-        image=data[...,0:3]
-        image=transforms.ToTensor()(image)
+        image2=data[...,0:3]
+        image2=transforms.ToTensor()(image2)
         #print(torch.max(image),torch.min(image))
         right=data[...,3:6]/255
         disparity=data[...,6]
@@ -88,11 +116,11 @@ class KITTI(data.Dataset):
         # print(np.sum(np.where(disparity<=3,np.ones(1),np.zeros(1))))
         # print(disparity.shape)
         if self.is_transform:
-            left, right,disparity = self.transform(left, right,disparity)
+            left, right,disparity,image = self.transform(left, right,disparity)
         if self.split=='test':
             return left, right,disparity,image,self.files[index].split('.')[0],h,w
         #print(torch.max(left),torch.min(left))
-        return left, right,disparity,image
+        return left, right,disparity,image2
     def transform(self, left, right,disparity):
         """transform
         """
@@ -100,10 +128,58 @@ class KITTI(data.Dataset):
             transforms.ToTensor(),
             transforms.Normalize(**self.stats),
         ])
-     
-        left=trans(left).float()
-        right=trans(right).float()
+        if self.split=='eval' or self.split=='test':
+            image=left*255+0
+            left=trans(left).float()
+            right=trans(right).float()
+            disparity=torch.from_numpy(disparity).float()
+            #image=left+0
+        else:
 
-        disparity=torch.from_numpy(disparity).float()
+            disparity=torch.from_numpy(disparity).float()
+            topil=transforms.ToPILImage()
+            totensor=transforms.ToTensor()
+            normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
+            left=totensor(left)
+            right=totensor(right)
+            one=torch.ones(1).float()
+            zero=torch.zeros(1).float()
+            sigma=random.uniform(0, 0.04)
+            # brightness=random.uniform(0, 0.4)
+            # contrast=random.uniform(0, 0.4)
+            # saturation=random.uniform(0, 0.4)
+            # hue=random.uniform(0, 0.2)
+            color=transforms.ColorJitter(0.4,0.4,0,0)
+            #variance=color(left)-left
+            left=topil(left)
+            right=topil(right)
+            left=color(left)
+            right=color(right)
 
-        return left,right,disparity
+            # gamma=random.uniform(0.7, 1.5)
+            # left=tf.adjust_gamma(left,gamma)
+            # right=tf.adjust_gamma(right,gamma)
+            left=totensor(left)
+            right=totensor(right)
+            left=self.pca(left)
+            right=self.pca(right)
+            # r=random.uniform(0.8, 1.2)
+            # g=random.uniform(0.8, 1.2)
+            # b=random.uniform(0.8, 1.2)
+            # left[:,:,0]*=r
+            # left[:,:,1]*=g
+            # left[:,:,2]*=b
+            # right[:,:,0]*=r
+            # right[:,:,1]*=g
+            # right[:,:,2]*=b
+            # gaussian=torch.zeros_like(left).normal_()*sigma
+            # left=left+gaussian
+            left=left.clamp(min=0,max=1)
+            # right=right+gaussian
+            right=right.clamp(min=0,max=1)
+            image=left+0
+            left=normalize(left)
+            right=normalize(right)
+
+        return left,right,disparity,image

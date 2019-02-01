@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-17 00:35:28
+# @Last Modified time: 2019-02-01 17:19:16
 import sys
 import torch
 import visdom
@@ -27,7 +27,7 @@ def train(args):
     # Setup Augmentations
 
     loss_rec=[0]
-    best_error=2
+    best_error=5
     # Setup Dataloader
     data_loader = get_loader(args.dataset)
     data_path = get_data_path(args.dataset)
@@ -35,14 +35,13 @@ def train(args):
                            split='train_all', img_size=(args.img_rows, args.img_cols))
     v_loader = data_loader(data_path, is_transform=True,
                            split='eval', img_size=(args.img_rows, args.img_cols))
-    valloader = data.DataLoader(
-        v_loader, batch_size=args.batch_size, num_workers=2, shuffle=False)
-    train_length=t_loader.length//2
-    test_length=v_loader.length//2
+
+    train_length=t_loader.length//args.batch_size
+
     trainloader = data.DataLoader(
-        t_loader, batch_size=args.batch_size, num_workers=2, shuffle=True)
-    valloader = data.DataLoader(
-        v_loader, batch_size=args.batch_size, num_workers=2, shuffle=False)
+        t_loader, batch_size=args.batch_size, num_workers=4, shuffle=True)
+    evalloader = data.DataLoader(
+        v_loader, batch_size=args.batch_size, num_workers=4, shuffle=False)
 
 
     # Setup visdom for visualization
@@ -72,6 +71,10 @@ def train(args):
             np.random.rand(256, 512),
             opts=dict(title='image!', caption='image.'),
         )
+        error3_window = vis.image(
+            np.random.rand(256, 512),
+            opts=dict(title='error!', caption='error.'),
+        )
     # Setup Model
     model = get_model(args.arch)
     # parameters=model.named_parameters()
@@ -81,16 +84,16 @@ def train(args):
     # exit()
 
     model = torch.nn.DataParallel(
-        model, device_ids=[2,3])
+        model, device_ids=[0,1,2,3])
     #model = torch.nn.DataParallel(model, device_ids=[0])
-    model.cuda(2)
+    model.cuda(0)
 
     # Check if model has custom optimizer / loss
     # modify to adam, modify the learning rate
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=args.l_rate,betas=(0.9,0.999))
-    # optimizer = torch.optim.SGD(
-    #     model.parameters(), lr=args.l_rate,momentum=0.90, weight_decay=5e-5)
+    # optimizer = torch.optim.Adam(
+    #     model.parameters(), lr=args.l_rate,betas=(0.9,0.999))
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=args.l_rate,momentum=0.90, weight_decay=5e-5)
     # optimizer = torch.optim.Adam(
     #     model.parameters(), lr=args.l_rate,weight_decay=5e-4,betas=(0.9,0.999),amsgrad=True)
     loss_fn = l1
@@ -104,12 +107,14 @@ def train(args):
             #model_dict=model.state_dict()  
             #opt=torch.load('/home/lidong/Documents/cmf/cmf/exp1/l2/sgd/log/83/rsnet_nyu_best_model.pkl')
             model.load_state_dict(checkpoint['model_state'])
-            optimizer.load_state_dict(checkpoint['optimizer_state'])
+            #optimizer.load_state_dict(checkpoint['optimizer_state'])
             #opt=None
             print("Loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
             trained=checkpoint['epoch']
-            best_error=5
+            best_error=checkpoint['error']+1
+            mean_loss=checkpoint['error']
+            #trained=0
             # loss_rec=np.load('/home/lidong/Documents/CMF/loss_8.npy')
             # loss_rec=list(loss_rec)
             # print(train_length)
@@ -154,12 +159,14 @@ def train(args):
     #best_error=5
     # it should be range(checkpoint[''epoch],args.n_epoch)
     for epoch in range(trained, args.n_epoch):
-        ones=torch.ones(1).cuda(2)
-        zeros=torch.zeros(1).cuda(2)
+        ones=torch.ones(1).cuda(0)
+        zeros=torch.zeros(1).cuda(0)
         print('training!')
         model.train()
-        loss_3_rec=[]
+        epe_rec=[]
         for i, (left, right,disparity,image) in enumerate(trainloader):
+            # if epoch==trained:
+            #     break
             #break
             #with torch.no_grad():
             #print(left.shape)
@@ -167,157 +174,289 @@ def train(args):
             flag=1
             count=0
             start_time=time.time()
-            left = left.cuda(2)
-            right = right.cuda(2)
-            disparity = disparity.cuda(2)
+            left = left.cuda(0)
+            right = right.cuda(0)
+            disparity = disparity.cuda(0)
             mask = (disparity < 192) & (disparity >0)
             mask.detach_()
+            iterative_count=0
             while(flag):
                 optimizer.zero_grad()
                 #print(P.shape)
                 output1, output2, output3 = model(left,right)
                 #print(output3.shape)
                 # output1 = torch.squeeze(output1, 1)
-                # loss = F.smooth_l1_loss(output1[mask], disparity[mask],reduction='elementwise_mean')
+                # loss = F.smooth_l1_loss(output1[mask], disparity[mask],reduction='mean')
                 output1 = torch.squeeze(output1, 1)
                 output2 = torch.squeeze(output2, 1)
                 output3 = torch.squeeze(output3, 1)
                 # #outputs=outputs
-                loss = 0.5 * F.smooth_l1_loss(output1[mask], disparity[mask],reduction='elementwise_mean') \
-                     + 0.7 * F.smooth_l1_loss(output2[mask], disparity[mask], reduction='elementwise_mean') \
-                     + F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
+                #test the l2 loss to reduce the error3
+                #increase the weight for the error more than 3.
+                # loss = 0.5 * F.l1_loss(output1[mask], disparity[mask],reduction='mean') \
+                #      + 0.7 * F.l1_loss(output2[mask], disparity[mask], reduction='mean') \
+                #      + F.l1_loss(output3[mask], disparity[mask], reduction='mean')
+                loss = 0.5 * F.smooth_l1_loss(output1[mask], disparity[mask],reduction='mean') \
+                     + 0.7 * F.smooth_l1_loss(output2[mask], disparity[mask], reduction='mean') \
+                     + F.smooth_l1_loss(output3[mask], disparity[mask], reduction='mean')
                 #loss=loss/2.2
+
                 #output3 = model(left,right)
                 output1=output3
                 output1 = torch.squeeze(output1, 1)
+                epe=torch.mean(torch.abs(output1[mask]-disparity[mask]))
                 error_map=torch.where((torch.abs(output1[mask] - disparity[mask])<3) | (torch.abs(output1[mask] - disparity[mask])<0.05*disparity[mask]),ones,zeros)
-                total=torch.where(disparity[mask]>0,ones,zeros)
-                loss_3=100-torch.sum(error_map)/torch.sum(total)*100
-                #loss = F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
-                loss.backward()
+                #total=torch.where(disparity[mask]>0,ones,zeros)
+                loss_3=100-torch.sum(error_map)/torch.sum(mask)*100
+                #loss = F.smooth_l1_loss(output3[mask], disparity[mask], reduction='mean')
+                #loss.backward()
                 #parameters=model.named_parameters()
-                optimizer.step()
-                if loss_3<1.5 or count>20:
-                    flag=0
+                #optimizer.step()
+                if args.visdom:
+                    if iterative_count>0:
+                        error_map=torch.where((torch.abs(output1 - disparity)>=3) | (torch.abs(output1 - disparity)>=0.05*disparity),ones,zeros) * mask.float()
+                        #print(output3.shape)
+                        pre = output3.data.cpu().numpy().astype('float32')
+                        pre = pre[0,:,:]
+                        #print(np.max(pre))
+                        #print(pre.shape)
+                        pre = np.reshape(pre, [256,512]).astype('float32')
+                        vis.image(
+                            pre,
+                            opts=dict(title='predict!', caption='predict.'),
+                            win=pre_window,
+                        )
+
+                        error_map=error_map.data.cpu().numpy().astype('float32')
+                        error_map = error_map[0,...]
+                        #image=image[0,...]
+                        #print(image.shape,np.min(image))
+                        error_map = np.reshape(error_map, [256,512]).astype('float32')
+                        vis.image(
+                            error_map,
+                            opts=dict(title='error!', caption='error.'),
+                            win=error3_window,
+                        )
+                    else:
+                        error_map=torch.where((torch.abs(output1 - disparity)>=3) | (torch.abs(output1 - disparity)>=0.05*disparity),ones,zeros) * mask.float()
+                        #print(output3.shape)
+                        pre = output3.data.cpu().numpy().astype('float32')
+                        pre = pre[0,:,:]
+                        #print(np.max(pre))
+                        #print(pre.shape)
+                        pre = np.reshape(pre, [256,512]).astype('float32')
+                        vis.image(
+                            pre,
+                            opts=dict(title='predict!', caption='predict.'),
+                            win=pre_window,
+                        )
+
+                        ground=disparity.data.cpu().numpy().astype('float32')
+                        ground = ground[0, :, :]
+                        ground = np.reshape(ground, [256,512]).astype('float32')
+                        vis.image(
+                            ground,
+                            opts=dict(title='ground!', caption='ground.'),
+                            win=ground_window,
+                        )
+                        image=image.data.cpu().numpy().astype('float32')
+                        image = image[0,...]
+                        #image=image[0,...]
+                        #print(image.shape,np.min(image))
+                        image = np.reshape(image, [3,256,512]).astype('float32')
+                        vis.image(
+                            image,
+                            opts=dict(title='image!', caption='image.'),
+                            win=image_window,
+                        )      
+                        error_map=error_map.data.cpu().numpy().astype('float32')
+                        error_map = error_map[0,...]
+                        #image=image[0,...]
+                        #print(image.shape,np.min(image))
+                        error_map = np.reshape(error_map, [256,512]).astype('float32')
+                        vis.image(
+                            error_map,
+                            opts=dict(title='error!', caption='error.'),
+                            win=error3_window,
+                        ) 
+                if iterative_count==0:
+                    min_loss3_t=epe
+                if epoch<=trained+40:
+
+                    loss.backward()
+                    epe_rec.append(epe.item())
+                    optimizer.step()
+                    break
+                if (epe<=mean_loss) :
+                    #loss_bp=loss*torch.pow(100,-(mean_loss-lin)/mean_loss)
+                    #loss_bp=loss*zero
+                    print('no back')
+                    if epe<=mean_loss:
+                        loss_bp=0.1*loss
+                    else:
+                        loss_bp=loss
+                    #optimizer.step()
+                    loss_bp.backward()
+                    epe_rec.append(epe.item())
+                    #optimizer.step()
+                    break
                 else:
-                    count+=1
-                    print(loss_3.item())
-            loss_3_rec.append(loss_3.item())
+                    #print(torch.pow(10,torch.min(one,(lin-mean_loss)/mean_loss)).item())
+                    print('back')
+                    #loss=loss*torch.pow(10,torch.min(one,(lin-mean_loss)/mean_loss))
+                    if epe>1.5*mean_loss:
+                        loss_bp=10*loss
+                    else:
+                        loss_bp=loss
+                    loss_bp.backward()
+                    optimizer.step()
+                if epe<=mean_loss or iterative_count>100 :
+                    if epe<min_loss3_t:
+                        epe_rec.append(epe.item())
+                        # mean_loss=np.mean(epe_rec)
+                        break
+                    else:
+                        min_loss3_t=torch.min(epe,min_loss3_t)
+                        #if lin<1.5*mean_loss:
+                        iterative_count+=1
+                        print("repeat data [%d/%d/%d/%d] Loss: %.4f error_3: %.4f " % (i,train_length, epoch, args.n_epoch,loss.item()/2.2,epe.item()))
+                else:
+                    min_loss3_t=torch.min(epe,min_loss3_t)
+                    #if lin<1.5*mean_loss:
+                    iterative_count+=1
+                    print("repeat data [%d/%d/%d/%d] Loss: %.4f error_3: %.4f " % (i,train_length, epoch, args.n_epoch,loss.item()/2.2,epe.item()))
+
+
             #torch.cuda.empty_cache()
             #print(loss.item)
             if args.visdom ==True:
                 vis.line(
                     X=torch.ones(1).cpu() * i+torch.ones(1).cpu() *(epoch-trained)*train_length,
-                    Y=loss.item()*torch.ones(1).cpu(),
+                    Y=epe.item()*torch.ones(1).cpu(),
                     win=loss_window,
                     update='append')
                 #print(torch.max(output3).item(),torch.min(output3).item())
-                if i%1==0:
-                    #print(output3.shape)
-                    pre = output3.data.cpu().numpy().astype('float32')
-                    pre = pre[0,:,:]
-                    #print(np.max(pre))
-                    #print(pre.shape)
-                    pre = np.reshape(pre, [256,512]).astype('float32')
-                    vis.image(
-                        pre,
-                        opts=dict(title='predict!', caption='predict.'),
-                        win=pre_window,
-                    )
+                # if i%1==0:
+                #     error_map=torch.where((torch.abs(output1 - disparity)>=3) | (torch.abs(output1 - disparity)>=0.05*disparity),ones,zeros) * mask.float()
+                #     #print(output3.shape)
+                #     pre = output3.data.cpu().numpy().astype('float32')
+                #     pre = pre[0,:,:]
+                #     #print(np.max(pre))
+                #     #print(pre.shape)
+                #     pre = np.reshape(pre, [256,512]).astype('float32')
+                #     vis.image(
+                #         pre,
+                #         opts=dict(title='predict!', caption='predict.'),
+                #         win=pre_window,
+                #     )
 
-                    ground=disparity.data.cpu().numpy().astype('float32')
-                    ground = ground[0, :, :]
-                    ground = np.reshape(ground, [256,512]).astype('float32')
-                    vis.image(
-                        ground,
-                        opts=dict(title='ground!', caption='ground.'),
-                        win=ground_window,
-                    )
-                    image=image.data.cpu().numpy().astype('float32')
-                    image = image[0,...]
-                    #image=image[0,...]
-                    #print(image.shape,np.min(image))
-                    image = np.reshape(image, [3,256,512]).astype('float32')
-                    vis.image(
-                        image,
-                        opts=dict(title='image!', caption='image.'),
-                        win=image_window,
-                    )            
+                #     ground=disparity.data.cpu().numpy().astype('float32')
+                #     ground = ground[0, :, :]
+                #     ground = np.reshape(ground, [256,512]).astype('float32')
+                #     vis.image(
+                #         ground,
+                #         opts=dict(title='ground!', caption='ground.'),
+                #         win=ground_window,
+                #     )
+                #     image=image.data.cpu().numpy().astype('float32')
+                #     image = image[0,...]
+                #     #image=image[0,...]
+                #     #print(image.shape,np.min(image))
+                #     image = np.reshape(image, [3,256,512]).astype('float32')
+                #     vis.image(
+                #         image,
+                #         opts=dict(title='image!', caption='image.'),
+                #         win=image_window,
+                #     )      
+                #     error_map=error_map.data.cpu().numpy().astype('float32')
+                #     error_map = error_map[0,...]
+                #     #image=image[0,...]
+                #     #print(image.shape,np.min(image))
+                #     error_map = np.reshape(error_map, [256,512]).astype('float32')
+                #     vis.image(
+                #         error_map,
+                #         opts=dict(title='error!', caption='error.'),
+                #         win=error3_window,
+                #     )         
             loss_rec.append(loss.item())
             print(time.time()-start_time)
             print("data [%d/%d/%d/%d] Loss: %.4f, loss_3:%.4f" % (i,train_length, epoch, args.n_epoch,loss.item()/2.2,loss_3.item()))
-        print('loss_3:',np.mean(loss_3_rec))
-        error=10
-        error_rec=[]
-        error_rec_non=[]
-        error_rec_true=[]
-        error_rec_3=[]
-        #trained
+        print('epe:',np.mean(epe_rec))
+        #eval
         print('testing!')
         model.eval()
-        ones=torch.ones(1).cuda(2)
-        zeros=torch.zeros(1).cuda(2)
-        for i, (left, right,disparity,image) in enumerate(valloader):
+        epe_rec=[]
+        loss_3_re =[]
+        for i, (left, right,disparity,image) in tqdm(enumerate(evalloader)):
+            #break
+            #with torch.no_grad():
+            #print(left.shape)
+            #print(torch.max(image),torch.min(image))
             with torch.no_grad():
+
+                count=0
                 start_time=time.time()
-                left = left.cuda(2)
-                right = right.cuda(2)
-                disparity = disparity.cuda(2)
-                local=torch.arange(disparity.shape[-1]).repeat(disparity.shape[0],disparity.shape[1],1).view_as(disparity).float().cuda(2)
-                mask_non = (disparity < 192) & (disparity > 0) &((local-disparity)>=0)
-                mask_true = (disparity < 192) & (disparity > 0)&((local-disparity)>=0)
-                mask = (disparity < 192) & (disparity > 0)
+                left = left.cuda(0)
+                right = right.cuda(0)
+                disparity = disparity.cuda(0)
+                mask = (disparity < 192) & (disparity >0)
                 mask.detach_()
-                mask_non.detach_()
-                mask_true.detach_()
+                iterative_count=0
+
+                optimizer.zero_grad()
                 #print(P.shape)
-                #print(left.shape)
                 output1, output2, output3 = model(left,right)
-                #output3 = model(left,right)
                 #print(output3.shape)
+                # output1 = torch.squeeze(output1, 1)
+                # loss = F.smooth_l1_loss(output1[mask], disparity[mask],reduction='mean')
+                output1 = torch.squeeze(output1, 1)
+                output2 = torch.squeeze(output2, 1)
+                output3 = torch.squeeze(output3, 1)
+                # #outputs=outputs
+                loss = 0.5 * F.mse_loss(output1[mask], disparity[mask],reduction='mean') \
+                     + 0.7 * F.mse_loss(output2[mask], disparity[mask], reduction='mean') \
+                     + F.mse_loss(output3[mask], disparity[mask], reduction='mean')
+                #loss=loss/2.2
+                #output3 = model(left,right)
                 output1=output3
                 output1 = torch.squeeze(output1, 1)
-                loss=torch.mean(torch.abs(output1[mask] - disparity[mask]))
-                loss_non=torch.mean(torch.abs(output1[mask_non] - disparity[mask_non]))
-                loss_true=torch.mean(torch.abs(output1[mask_true] - disparity[mask_true]))
                 error_map=torch.where((torch.abs(output1[mask] - disparity[mask])<3) | (torch.abs(output1[mask] - disparity[mask])<0.05*disparity[mask]),ones,zeros)
-                total=torch.where(disparity[mask]>0,ones,zeros)
-                loss_3=100-torch.sum(error_map)/torch.sum(total)*100
-                #loss = F.l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
-                error_rec.append(loss.item())
-                error_rec_non.append(loss_non.item())
-                error_rec_true.append(loss_true.item())
-                error_rec_3.append(loss_3.item())
-                if args.visdom ==True:
-                    vis.line(
-                        X=torch.ones(1).cpu() * i+torch.ones(1).cpu() *(epoch-trained)*train_length,
-                        Y=loss.item()*torch.ones(1).cpu(),
-                        win=loss_window,
-                        update='append')
+                #total=torch.where(disparity[mask]>0,ones,zeros)
+                loss_3=100-torch.sum(error_map)/torch.sum(mask)*100
+                epe_rec.append(epe.item())
+                epe=torch.mean(torch.abs(output1[mask]-disparity[mask]))
+                loss_3_re.append(loss_3.item())
+            if args.visdom ==True:
+                vis.line(
+                    X=torch.ones(1).cpu() * i+torch.ones(1).cpu() *(epoch-trained)*train_length,
+                    Y=epe.item()*torch.ones(1).cpu(),
+                    win=error_window,
+                    update='append')
+                #print(torch.max(output3).item(),torch.min(output3).item())
+          
+            loss_rec.append(loss.item())
             print(time.time()-start_time)
-            print("data [%d/%d/%d/%d] Loss: %.4f ,Loss_non: %.4f, Loss_true: %.4f" % (i, test_length,epoch, args.n_epoch,loss.item(),loss_non.item(),loss_3.item()))
-
-        error=np.mean(error_rec)
-        error_non=np.mean(error_rec_non)
-        error_true=np.mean(error_rec_true)
-        error_3=np.mean(error_rec_3)
-        error=error_3
-        print(error)
+            print("data [%d/%d/%d/%d] Loss: %.4f, loss_3:%.4f" % (i,train_length, epoch, args.n_epoch,loss.item()/2.2,loss_3.item()))
+        print('epe:',np.mean(epe_rec))
+        print('loss_3:',np.mean(loss_3_re))
+        error=np.mean(epe_rec)
+        mean_loss=np.mean(epe_rec)
         if error<best_error:
             best_error=error
             state = {'epoch': epoch+1,
              'model_state': model.state_dict(),
              'optimizer_state': optimizer.state_dict(),
-             'error':best_error}
-            np.save('loss_4.npy',loss_rec)
-            torch.save(state, "{}_{}_{}_{}_best_model.pkl".format(epoch,args.arch,args.dataset,best_error))
-        if epoch%15==0:
+             'error':best_error
+             }
+            #np.save('loss_4.npy',loss_rec)
+            torch.save(state, "{}_{}_{}_{}_six_best_model.pkl".format(epoch,args.arch,args.dataset,best_error))
+        if epoch%20==0:
             state = {'epoch': epoch+1,
              'model_state': model.state_dict(),
              'optimizer_state': optimizer.state_dict(),
              'error':best_error}
-            np.save('loss_4.npy',loss_rec)
-            torch.save(state, "{}_{}_{}_{}_best_model.pkl".format(epoch,args.arch,args.dataset,best_error))
+            #np.save('loss_4.npy',loss_rec)
+            torch.save(state, "{}_{}_{}_{}_six_best_model.pkl".format(epoch,args.arch,args.dataset,best_error))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
@@ -331,13 +470,13 @@ if __name__ == '__main__':
                         help='Width of the input image')
     parser.add_argument('--n_epoch', nargs='?', type=int, default=4000,
                         help='# of the epochs')
-    parser.add_argument('--batch_size', nargs='?', type=int, default=2,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=4,
                         help='Batch Size')
     parser.add_argument('--l_rate', nargs='?', type=float, default=1e-4,
                         help='Learning Rate')
     parser.add_argument('--feature_scale', nargs='?', type=int, default=1,
                         help='Divider for # of features to use')
-    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/675_cmfsm_kitti_1.571477737426758_best_model.pkl',
+    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/680_cmfsm_kitti_0.5855699917674064_six_best_model.pkl',
                         help='Path to previous saved model to restart from /home/lidong/Documents/CMF/9_cm_sub_4_flying3d_best_model.pkl')
     parser.add_argument('--visdom', nargs='?', type=bool, default=True,
                         help='Show visualization(s) on visdom | False by  default')
