@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-13 16:26:28
+# @Last Modified time: 2019-03-01 14:09:50
 import sys
 import torch
 import visdom
@@ -37,8 +37,7 @@ def train(args):
 
     trainloader = data.DataLoader(
         t_loader, batch_size=args.batch_size, num_workers=4, shuffle=True)
-    valloader = data.DataLoader(
-        v_loader, batch_size=args.batch_size, num_workers=4)
+
 
 
     # Setup visdom for visualization
@@ -78,7 +77,7 @@ def train(args):
 
     model = torch.nn.DataParallel(
         model, device_ids=range(torch.cuda.device_count()))
-    #model = torch.nn.DataParallel(model, device_ids=[0])
+    # model = torch.nn.DataParallel(model, device_ids=[0])
     model.cuda()
 
     # Check if model has custom optimizer / loss
@@ -100,7 +99,7 @@ def train(args):
             #model_dict=model.state_dict()  
             #opt=torch.load('/home/lidong/Documents/cmf/cmf/exp1/l2/sgd/log/83/rsnet_nyu_best_model.pkl')
             model.load_state_dict(checkpoint['model_state'])
-            optimizer.load_state_dict(checkpoint['optimizer_state'])
+            #optimizer.load_state_dict(checkpoint['optimizer_state'])
             #opt=None
             print("Loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
@@ -160,7 +159,7 @@ def train(args):
             left = left.cuda()
             right = right.cuda()
             disparity = disparity.cuda()
-            mask = (disparity < 192) & (disparity >= 0)
+            mask = (disparity < 192) & (disparity >0)
             mask.detach_()
             optimizer.zero_grad()
             #print(P.shape)
@@ -170,9 +169,9 @@ def train(args):
             output2 = torch.squeeze(output2, 1)
             output3 = torch.squeeze(output3, 1)
             # #outputs=outputs
-            loss = 0.5 * F.smooth_l1_loss(output1[mask], disparity[mask],reduction='elementwise_mean') \
-                 + 0.7 * F.smooth_l1_loss(output2[mask], disparity[mask], reduction='elementwise_mean') \
-                 + F.smooth_l1_loss(output3[mask], disparity[mask], reduction='elementwise_mean')
+            loss = 0.5 * F.smooth_l1_loss(output1[mask], disparity[mask],reduction='mean') \
+                 + 0.7 * F.smooth_l1_loss(output2[mask], disparity[mask], reduction='mean') \
+                 + F.smooth_l1_loss(output3[mask], disparity[mask], reduction='mean')
             #loss=loss/2.2
             #output3 = model(left,right)
 
@@ -191,7 +190,7 @@ def train(args):
                     win=loss_window,
                     update='append')
                 #print(torch.max(output3).item(),torch.min(output3).item())
-                if i%15==0:
+                if i%1==0:
                     #print(output3.shape)
                     pre = output3.data.cpu().numpy().astype('float32')
                     pre = pre[0,:,:]

@@ -3,6 +3,8 @@ import json
 from cmf.loader.Flying3d import Flying3d
 from cmf.loader.SceneFlow import SceneFlow
 from cmf.loader.KITTI import KITTI
+from cmf.loader.KITTI12 import KITTI12
+from cmf.loader.KITTI15 import KITTI15
 def get_loader(name):
     """get_loader
 
@@ -13,6 +15,8 @@ def get_loader(name):
         'flying3d': Flying3d,
         'sceneflow':SceneFlow,
         'kitti':KITTI,
+        'kitti12':KITTI12,
+        'kitti15':KITTI15,
     }[name]
 
 

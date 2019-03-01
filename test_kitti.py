@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2019-01-29 14:32:03
+# @Last Modified time: 2019-02-16 11:29:43
 import sys
 import torch
 import visdom
@@ -166,7 +166,7 @@ def train(args):
             #print(np.max(pre))
             #print(pre.shape)
             pre = np.reshape(pre, [h[0],w[0]])
-            cv2.imwrite(os.path.join('/home/lidong/Documents/datasets/kitti/disp_0',name[0]+'.png'),pre)
+            cv2.imwrite(os.path.join('/home/lidong/Documents/datasets/kitti12/disp_occ',name[0]+'.png'),pre)
             # pre = output3.data.cpu().numpy().astype('uint16')
             # pre = pre[1,-h[1]:,-w[1]:]
             # #print(np.max(pre))
@@ -178,7 +178,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hyperparams')
     parser.add_argument('--arch', nargs='?', type=str, default='cmfsm',
                         help='Architecture to use [\'region support network\']')
-    parser.add_argument('--dataset', nargs='?', type=str, default='kitti',
+    parser.add_argument('--dataset', nargs='?', type=str, default='kitti12',
                         help='Dataset to use [\'sceneflow and kitti etc\']')
     parser.add_argument('--img_rows', nargs='?', type=int, default=480,
                         help='Height of the input image')
@@ -192,7 +192,7 @@ if __name__ == '__main__':
                         help='Learning Rate')
     parser.add_argument('--feature_scale', nargs='?', type=int, default=1,
                         help='Divider for # of features to use')
-    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/100_cmfsm_kitti_2.294239044189453_six_best_model.pkl',
+    parser.add_argument('--resume', nargs='?', type=str, default='/home/lidong/Documents/CMF/1094_cmfsm_kitti12_0.47550634211964077_error3_1.549240960015191_six_best_model.pkl',
                         help='Path to previous saved model to restart from /home/lidong/Documents/CMF/9_cm_sub_4_flying3d_best_model.pkl')
     parser.add_argument('--visdom', nargs='?', type=bool, default=False,
                         help='Show visualization(s) on visdom | False by  default')

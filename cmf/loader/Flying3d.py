@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-03-19 13:33:07
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-17 02:50:54
+# @Last Modified time: 2019-02-28 21:51:28
 
 import os
 import torch
@@ -45,10 +45,7 @@ class Flying3d(data.Dataset):
         :param index:
         """
         #index=58
-        if index%2==0:
-            index=2399
-        else:
-            index=3561
+
         data=np.load(os.path.join(self.datapath,self.split,self.files[index]))
         #print(os.path.join(self.datapath,self.split,self.files[index]))
         if self.split=='train':
@@ -89,7 +86,7 @@ class Flying3d(data.Dataset):
         if self.is_transform:
             left, right,disparity = self.transform(left, right,disparity)
         #print(torch.max(left),torch.min(left))
-        return left, right,disparity,image,index
+        return left, right,disparity,image
     def transform(self, left, right,disparity):
         """transform
         """

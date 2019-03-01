@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-03-19 13:33:07
 # @Last Modified by:   yulidong
-# @Last Modified time: 2019-02-26 15:03:18
+# @Last Modified time: 2019-02-26 15:07:40
 
 import os
 import torch
@@ -38,7 +38,7 @@ class Lighting(object):
         # exit()
         return img.add(rgb.view(3, 1, 1).expand_as(img))
 
-class KITTI(data.Dataset):
+class KITTI15(data.Dataset):
 
 
     def __init__(self, root, split="train", is_transform=True, img_size=(540,960)):
@@ -56,10 +56,9 @@ class KITTI(data.Dataset):
         self.pca = Lighting()
         self.files = {}
         self.datapath=root
-        self.files=os.listdir(os.path.join('/home/lidong/Documents/datasets/kitti15/',split))+os.listdir(os.path.join('/home/lidong/Documents/datasets/kitti12/',split))
-        #self.files.sort()          
+        self.files=os.listdir(os.path.join(self.datapath,split))
+        self.files.sort()          
         self.split=split
-        self.kitti15=len(os.listdir(os.path.join('/home/lidong/Documents/datasets/kitti15/',split)))
         if len(self.files)<1:
             raise Exception("No files for ld=[%s] found in %s" % (split, self.ld))
         self.length=self.__len__()
@@ -76,10 +75,7 @@ class KITTI(data.Dataset):
         """
         #index=58
         #print(os.path.join(self.datapath,'train_all',self.files[index]))
-        if index<self.kitti15:
-            data=np.load(os.path.join('/home/lidong/Documents/datasets/kitti15/',self.split,self.files[index]))
-        else:
-            data=np.load(os.path.join('/home/lidong/Documents/datasets/kitti12/',self.split,self.files[index]))
+        data=np.load(os.path.join(self.datapath,self.split,self.files[index]))
         #print(os.path.join(self.datapath,self.split,self.files[index]))
         if self.split=='train' or self.split=='train_all':
             position=np.nonzero(data[...,6])
@@ -161,7 +157,7 @@ class KITTI(data.Dataset):
             #variance=color(left)-left
             left=topil(left)
             right=topil(right)
-            color=transforms.ColorJitter(0.4,0.4,0.4,0.4)
+            color=transforms.ColorJitter(0.4,0.4,0.4,0)
             left=color(left)
             right=color(right)
 

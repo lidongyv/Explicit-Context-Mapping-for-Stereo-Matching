@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 16:31:14
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-09-21 23:32:28
+# @Last Modified time: 2019-02-24 18:03:05
 
 import torch
 import numpy as np
@@ -244,3 +244,9 @@ def region_r(input,target,instance):
         relation.append(loss/(torch.max(instance)))
         loss=0
     return relation
+def softl1loss(input,target):
+    l1=nn.L1Loss(reduction='none')
+    l2=nn.MSELoss(reduction='none')
+    thres=torch.abs(input-target)
+    loss=torch.mean(torch.where((thres<3)|(thres<target*0.05),l1(input,target)/3,(l2(input,target)+9)/18))
+    return loss

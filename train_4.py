@@ -2,7 +2,7 @@
 # @Author: lidong
 # @Date:   2018-03-18 13:41:34
 # @Last Modified by:   yulidong
-# @Last Modified time: 2018-11-13 23:23:19
+# @Last Modified time: 2019-02-20 19:23:41
 import sys
 import torch
 import visdom
@@ -76,16 +76,16 @@ def train(args):
     # exit()
 
     model = torch.nn.DataParallel(
-        model, device_ids=[2,3])
+        model, device_ids=[0,1,2,3])
     #model = torch.nn.DataParallel(model, device_ids=[0])
-    model.cuda(2)
+    model.cuda(0)
 
     # Check if model has custom optimizer / loss
     # modify to adam, modify the learning rate
-    # optimizer = torch.optim.Adam(
-    #     model.parameters(), lr=args.l_rate,betas=(0.9,0.999))
-    optimizer = torch.optim.SGD(
-        model.parameters(), lr=args.l_rate,momentum=0.90, weight_decay=5e-5)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=args.l_rate,betas=(0.9,0.999))
+    # optimizer = torch.optim.SGD(
+    #     model.parameters(), lr=args.l_rate,momentum=0.90, weight_decay=5e-5)
     # optimizer = torch.optim.Adam(
     #     model.parameters(), lr=args.l_rate,weight_decay=5e-4,betas=(0.9,0.999),amsgrad=True)
     loss_fn = l1
@@ -99,7 +99,7 @@ def train(args):
             #model_dict=model.state_dict()  
             #opt=torch.load('/home/lidong/Documents/cmf/cmf/exp1/l2/sgd/log/83/rsnet_nyu_best_model.pkl')
             model.load_state_dict(checkpoint['model_state'])
-            #optimizer.load_state_dict(checkpoint['optimizer_state'])
+            optimizer.load_state_dict(checkpoint['optimizer_state'])
             #opt=None
             print("Loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
@@ -158,9 +158,9 @@ def train(args):
             #print(left.shape)
             #print(torch.max(image),torch.min(image))
             start_time=time.time()
-            left = left.cuda(2)
-            right = right.cuda(2)
-            disparity = disparity.cuda(2)
+            left = left.cuda(0)
+            right = right.cuda(0)
+            disparity = disparity.cuda(0)
             mask = (disparity < 192) & (disparity >= 0)
             mask.detach_()
             optimizer.zero_grad()

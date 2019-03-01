@@ -2,7 +2,7 @@
 # @Author: yulidong
 # @Date:   2018-07-17 10:44:43
 # @Last Modified by:   yulidong
-# @Last Modified time: 2019-01-29 14:58:00
+# @Last Modified time: 2019-03-01 14:12:35
 # -*- coding: utf-8 -*-
 # @Author: lidong
 # @Date:   2018-03-20 18:01:52
@@ -146,8 +146,8 @@ class feature_extraction(nn.Module):
 
         self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
         self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
-        self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 2)
-        self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 4)
+        self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 1)
+        self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 2)
 
         self.branch1 = nn.Sequential(
             nn.AvgPool2d((64, 64), stride=(64, 64)),
@@ -316,7 +316,7 @@ class similarity_measure1(nn.Module):
         self.relu2 = nn.LeakyReLU(inplace=True)
         self.conv3 = nn.Conv2d(8, 1, kernel_size=1, stride=1, padding=0,
                                bias=False,dilation=1)
-        self.relu3 = nn.LeakyReLU(inplace=True)
+        #self.relu3 = nn.Sigmoid()
         # self.conv4 = nn.Conv2d(16, 8, kernel_size=1, stride=1, padding=0,
         #                        bias=False,dilation=1)
         # self.relu4 = nn.LeakyReLU(inplace=True)
@@ -340,7 +340,7 @@ class similarity_measure1(nn.Module):
         output = self.conv2(output)
         output = self.relu2(output)
         output = self.conv3(output)
-        output = self.relu3(output)
+        #output = self.relu3(output)
         # output = self.conv4(output)
         # output = self.relu4(output)
         # output = self.conv5(output)
@@ -386,277 +386,211 @@ class similarity_measure2(nn.Module):
         output = self.conv2(output)
         output = self.relu2(output)
         return output
-class context_mapping(nn.Module):
-    def __init__(self):
-        super(context_mapping,self).__init__()
-        self.similarity1=similarity_measure1()
-        self.similarity2=similarity_measure2()
-        #self.s1=nn.Parameter(torch.ones(1)).float()*0.5
-        #self.s2=nn.Parameter(torch.ones(1)).float()*0.1
-        self.fuse=nn.Sequential(nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0,
-                               bias=False,dilation=1),nn.LeakyReLU(inplace=True))
-        # self.s2=nn.Conv2d(1, 1, kernel_size=1, stride=1, padding=0,
-        #                        bias=False,dilation=1)
-        self.fuse.weight.data.fill_(1)
-        # self.s2.weight.data.fill_(1)
-        #print(self.s1.weight.data)
-        #exit()
-    def forward(self, lr_feature, hr_feature):
-        # self.s1=self.s1.cuda()
-        # self.s2=self.s2.cuda()
-        self.fuse.weight.data=torch.abs(self.fuse.weight.data)
-        scale=hr_feature.shape[-1]//lr_feature.shape[-1]
-        if scale%2==0:
-            x=torch.arange(-scale//2,scale//2+1).float()
-            x=torch.cat([x[:x.shape[0]//2],x[x.shape[0]//2+1:]]).unsqueeze(0)
-            distance_matrix=x.expand(scale,scale).unsqueeze(0)
-            distance_matrix=torch.cat([distance_matrix,distance_matrix.transpose(2,1)],0)
-            distance_matrix=torch.cat([distance_matrix,torch.sqrt(torch.pow(distance_matrix[0],2)+torch.pow(distance_matrix[1],2)).unsqueeze(0)],0)
-        else:
-            x=torch.arange(-scale//2,scale//2+1).unsqueeze(0)
-            distance_matrix=x.expand(scale,scale).unsqueeze(0)
-            distance_matrix=torch.cat([distance_matrix,distance_matrix.transpose(2,1)],0)
 
-        #print(distance_matrix.shape)
-        distance_matrix=distance_matrix.repeat(1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).unsqueeze(0)
-        lr_feature=lr_feature.unsqueeze(-1).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3],scale) \
-                                     .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],scale,lr_feature.shape[3]*scale) \
-                                  .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2]*scale,lr_feature.shape[3]*scale)
-        #128
-        representation=torch.cat([lr_feature,hr_feature,lr_feature*hr_feature,torch.pow(lr_feature-hr_feature,2)],1)
-        #print(representation.shape)
-        weights1=self.similarity1(representation)
-        weights2=self.similarity2(distance_matrix.float().cuda())
-        #self.s1=self.s1.view(1,1,1,1).repeat(weights1.shape[0],weights1.shape[1],weights1.shape[2],weights1.shape[3])
-        # self.s2=self.s2.view(1,1,1,1).repeat(weights1.shape[0],weights1.shape[1],weights1.shape[2],weights1.shape[3])
-        # mapping=(self.s1*weights1+self.s2*weights2)/(self.s1+self.s2)
-        #print(self.s1[0,0,0,0].item(),self.s2[0,0,0,0].item())
-        fuse=self.fuse(torch.ones(1,2,1,1).cuda())
-        #s2=self.s2(torch.ones(1,1,1,1).cuda())
-        print(self.fuse.weight.data.cpu().squeeze().numpy())
-        #mapping=(self.s1(weights1)+self.s2(weights2))
-        mapping=self.fuse(torch.cat([weights1,weights2],1))
-        return mapping
-class six_related_context_mapping(nn.Module):
+
+def matrix_generation():
+    scale=4
+    x=torch.arange(-scale//2,scale//2+1).float()
+    x=torch.cat([x[:x.shape[0]//2],x[x.shape[0]//2+1:]]).unsqueeze(0)
+    distance_matrix=x.expand(scale,scale).unsqueeze(0)
+
+    distance_matrix=torch.cat([distance_matrix,distance_matrix.transpose(2,1)],0)
+    distance_matrix=distance_matrix.unsqueeze(0)
+    distance_matrix1=distance_matrix+0
+    distance_matrix2=distance_matrix+0
+    distance_matrix3=distance_matrix+0
+    distance_matrix4=distance_matrix+0
+    distance_matrix5=distance_matrix+0
+    distance_matrix6=distance_matrix+0
+    distance_matrix7=distance_matrix+0
+    distance_matrix8=distance_matrix+0
+    x=torch.arange(1,scale+1).float()
+    x=x.expand(scale,scale).unsqueeze(0)
+    #x=x.repeat(hr_feature.shape[0],hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float().cuda()
+    distance_matrix1[:,0,:,:]=scale-x+1
+    distance_matrix2[:,0,:,:]=x
+    distance_matrix5[:,0,:,:]=distance_matrix2[:,0,:,:]
+    distance_matrix6[:,0,:,:]=distance_matrix1[:,0,:,:]
+    distance_matrix7[:,0,:,:]=distance_matrix2[:,0,:,:]
+    distance_matrix8[:,0,:,:]=distance_matrix1[:,0,:,:]
+    x=torch.arange(1,scale+1).float()
+    x=x.expand(scale,scale).unsqueeze(0).transpose(2,1)
+
+    distance_matrix3[:,1,:,:]=(scale-x+1)
+    distance_matrix4[:,1,:,:]=x
+    distance_matrix5[:,1,:,:]=distance_matrix3[:,1,:,:]
+    distance_matrix6[:,1,:,:]=distance_matrix3[:,1,:,:]
+    distance_matrix7[:,1,:,:]=distance_matrix4[:,1,:,:]
+    distance_matrix8[:,1,:,:]=distance_matrix4[:,1,:,:]
+    # print(distance_matrix3)
+    
+    return distance_matrix.cuda(),distance_matrix1.cuda(),distance_matrix2.cuda(),distance_matrix3.cuda(),distance_matrix4.cuda(), \
+           distance_matrix5.cuda(),distance_matrix6.cuda(),distance_matrix7.cuda(),distance_matrix8.cuda()
+
+
+class eight_related_context_mapping(nn.Module):
     def __init__(self):
-        super(six_related_context_mapping,self).__init__()
+        super(eight_related_context_mapping,self).__init__()
         self.similarity1=similarity_measure1()
-        self.similarity2=similarity_measure2()
-        self.fuse=nn.Sequential(nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0,
-                               bias=False,dilation=1),nn.LeakyReLU(inplace=True))
+        #need to remove
+        #self.similarity2=similarity_measure2()
+        # self.fuse=nn.Sequential(nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0,
+        #                        bias=False,dilation=1),nn.LeakyReLU(inplace=True))
         #self.fuse.weight.data.fill_(1)
-
+        self.sigmoid=nn.Sigmoid()
+        self.distance_matrix,self.distance_matrix1,self.distance_matrix2,self.distance_matrix3,self.distance_matrix4, \
+        self.distance_matrix5,self.distance_matrix6,self.distance_matrix7,self.distance_matrix8=matrix_generation()
     def forward(self, lr_feature, hr_feature,lr_feature_r, hr_feature_r):
-
+        
         #self.fuse.weight.data=torch.abs(self.fuse.weight.data)
         with torch.no_grad():
             scale=hr_feature.shape[-1]//lr_feature.shape[-1]
-            if scale%2==0:
-                x=torch.arange(-scale//2,scale//2+1).float()
-                x=torch.cat([x[:x.shape[0]//2],x[x.shape[0]//2+1:]]).unsqueeze(0)
-                distance_matrix=x.expand(scale,scale).unsqueeze(0)
-                distance_matrix=torch.cat([distance_matrix,distance_matrix.transpose(2,1)],0)
-                #distance_matrix=torch.cat([distance_matrix,torch.sqrt(torch.pow(distance_matrix[0],2)+torch.pow(distance_matrix[1],2)).unsqueeze(0)],0).unsqueeze(0)
-                distance_matrix=distance_matrix.unsqueeze(0)
-                padding1=torch.zeros(hr_feature.shape[0],1,hr_feature.shape[2],scale).float().cuda()
-                padding2=torch.zeros(hr_feature.shape[0],1,scale,hr_feature.shape[3]).float().cuda()
-            else:
+            if scale%2!=0:
                 exit()
-            #center
-            distance_matrix=distance_matrix.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float().cuda()
-            distance_matrix2=distance_matrix+0
-            distance_matrix1=distance_matrix+0
-            distance_matrix3=distance_matrix+0
-            distance_matrix4=distance_matrix+0
+
+            padding1=hr_feature[:,:1,:,:scale]*0-100
+            padding2=hr_feature[:,:1,:scale,:]*0-100
+
+            distance_matrix=self.distance_matrix.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float()
+            distance_matrix1=self.distance_matrix1.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float()
+            distance_matrix2=self.distance_matrix2.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float()
+            distance_matrix3=self.distance_matrix3.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float()
+            distance_matrix4=self.distance_matrix4.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float()
+            distance_matrix5=self.distance_matrix1.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float()
+            distance_matrix6=self.distance_matrix2.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float()
+            distance_matrix7=self.distance_matrix3.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float()
+            distance_matrix8=self.distance_matrix4.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float()
+        #center
+        #reference image
         lr_feature=lr_feature.unsqueeze(-1).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3],scale) \
                                      .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3]*scale) \
                                   .unsqueeze(-2).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],scale,lr_feature.shape[3]*scale) \
                                   .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2]*scale,lr_feature.shape[3]*scale)
-        #128
-        #representation=torch.cat([lr_feature,hr_feature,lr_feature*hr_feature,torch.pow(lr_feature-hr_feature,2)],1)
+
         representation=torch.cat([lr_feature,hr_feature,distance_matrix],1)
-        weights1=self.similarity1(representation)
-        #weights2=self.similarity2(distance_matrix)
-        #mapping=self.fuse(torch.cat([weights1,weights2],1))
-        mapping=weights1
+        weight=self.similarity1(representation)
+
         #target image
-        lr_feature_r=lr_feature_r.unsqueeze(-1).expand(lr_feature_r.shape[0],lr_feature_r.shape[1],lr_feature_r.shape[2],lr_feature_r.shape[3],scale) \
-                                     .contiguous().view(lr_feature_r.shape[0],lr_feature_r.shape[1],lr_feature_r.shape[2],lr_feature_r.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(lr_feature_r.shape[0],lr_feature_r.shape[1],lr_feature_r.shape[2],scale,lr_feature_r.shape[3]*scale) \
-                                  .contiguous().view(lr_feature_r.shape[0],lr_feature_r.shape[1],lr_feature_r.shape[2]*scale,lr_feature_r.shape[3]*scale)
-        #representation_target=torch.cat([lr_feature_r,hr_feature_r,lr_feature_r*hr_feature_r,torch.pow(lr_feature_r-hr_feature_r,2)],1)
-        representation_target=torch.cat([lr_feature_r,hr_feature_r,distance_matrix],1)
-        weights1_target=self.similarity1(representation_target)
-        #weights2_target=self.similarity2(distance_matrix)
-        #mapping_target=self.fuse(torch.cat([weights1_target,weights2_target],1))
-        mapping_target=weights1_target
-        #right
-        x=torch.arange(1,scale+1).float()
-        x=x.expand(scale,scale).unsqueeze(0)
-        x=x.repeat(hr_feature.shape[0],hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float().cuda()
-        
-        distance_matrix1[:,0,:,:]=scale-x+1
-        #distance_matrix1=distance_matrix1.unsqueeze(0)
-        #distance_matrix1[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix1[:,0,:,:],2)+torch.pow(distance_matrix1[:,1,:,:],2)).unsqueeze(0)
-        # representation_r=torch.cat([lr_feature[:,:,:,scale:],hr_feature[:,:,:,:-scale],lr_feature[:,:,:,scale:]*hr_feature[:,:,:,:-scale], \
-        #                torch.pow(lr_feature[:,:,:,scale:]-hr_feature[:,:,:,:-scale],2)],1)
-        representation_r=torch.cat([lr_feature[:,:,:,scale:],hr_feature[:,:,:,:-scale],distance_matrix1[:,:,:,scale:]],1)
-        weights1_r=self.similarity1(representation_r)
-        #weights2_r=self.similarity2(distance_matrix1[:,:,:,scale:])
-        #print(padding.shape)
-        #mapping_r=torch.cat([self.fuse(torch.cat([weights1_r,weights2_r],1)),padding1],-1)
-        mapping_r=torch.cat([weights1_r,padding1],-1)
+        # lr_feature_r=lr_feature_r.unsqueeze(-1).expand(lr_feature_r.shape[0],lr_feature_r.shape[1],lr_feature_r.shape[2],lr_feature_r.shape[3],scale) \
+        #                              .contiguous().view(lr_feature_r.shape[0],lr_feature_r.shape[1],lr_feature_r.shape[2],lr_feature_r.shape[3]*scale) \
+        #                           .unsqueeze(-2).expand(lr_feature_r.shape[0],lr_feature_r.shape[1],lr_feature_r.shape[2],scale,lr_feature_r.shape[3]*scale) \
+        #                           .contiguous().view(lr_feature_r.shape[0],lr_feature_r.shape[1],lr_feature_r.shape[2]*scale,lr_feature_r.shape[3]*scale)
 
-        #target
-        # representation_target_r=torch.cat([lr_feature_r[:,:,:,scale:],hr_feature_r[:,:,:,:-scale],lr_feature_r[:,:,:,scale:]*hr_feature_r[:,:,:,:-scale], \
-        #                torch.pow(lr_feature_r[:,:,:,scale:]-hr_feature_r[:,:,:,:-scale],2)],1)
-        representation_target_r=torch.cat([lr_feature_r[:,:,:,scale:],hr_feature_r[:,:,:,:-scale],distance_matrix1[:,:,:,scale:]],1)
-        weights1_target_r=self.similarity1(representation_target_r)
-        #weights2_target_r=self.similarity2(distance_matrix1[:,:,:,scale:])
-        #print(padding.shape)
-        #mapping_target_r=torch.cat([self.fuse(torch.cat([weights1_target_r,weights2_target_r],1)),padding1],-1)
-        mapping_target_r=torch.cat([weights1_target_r,padding1],-1)
+        # representation_target=torch.cat([lr_feature_r,hr_feature_r,distance_matrix],1)
+        # weight_target=self.similarity1(representation_target)
+
         #left
-        distance_matrix2[:,0,:,:]=x
-        #distance_matrix2=distance_matrix2.unsqueeze(0)
-        #distance_matrix2[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix2[:,0,:,:],2)+torch.pow(distance_matrix2[:,1,:,:],2)).unsqueeze(0)
-        # representation_l=torch.cat([lr_feature[:,:,:,:-scale],hr_feature[:,:,:,scale:],lr_feature[:,:,:,:-scale]*hr_feature[:,:,:,scale:], \
-        #                torch.pow(lr_feature[:,:,:,:-scale]-hr_feature[:,:,:,scale:],2)],1)
-        representation_l=torch.cat([lr_feature[:,:,:,:-scale],hr_feature[:,:,:,scale:],distance_matrix2[:,:,:,:-scale]],1)
-        weights1_l=self.similarity1(representation_l)
-        #weights2_l=self.similarity2(distance_matrix2[:,:,:,:-scale])
-        #mapping_l=torch.cat([padding1,self.fuse(torch.cat([weights1_l,weights2_l],1))],-1)
-        mapping_l=torch.cat([padding1,weights1_l],-1)
+        #reference
+        representation_l=torch.cat([lr_feature[:,:,:,:-scale],hr_feature[:,:,:,scale:],distance_matrix1[:,:,:,:-scale]],1)
+        weight_l=self.similarity1(representation_l)
+        weight_l=torch.cat([padding1,weight_l],-1)
         #target
-        # representation_target_l=torch.cat([lr_feature_r[:,:,:,:-scale],hr_feature_r[:,:,:,scale:],lr_feature_r[:,:,:,:-scale]*hr_feature_r[:,:,:,scale:], \
-        #                torch.pow(lr_feature_r[:,:,:,:-scale]-hr_feature_r[:,:,:,scale:],2)],1)
-        representation_target_l=torch.cat([lr_feature_r[:,:,:,:-scale],hr_feature_r[:,:,:,scale:],distance_matrix2[:,:,:,:-scale]],1)
-        weights1_target_l=self.similarity1(representation_target_l)
-        #weights2_target_l=self.similarity2(distance_matrix2[:,:,:,:-scale])
-        mapping_target_l=torch.cat([padding1,weights1_target_l],-1)
+        # representation_l_target=torch.cat([lr_feature_r[:,:,:,:-scale],hr_feature_r[:,:,:,scale:],distance_matrix2[:,:,:,:-scale]],1)
+        # weight_l_target=self.similarity1(representation_l_target)
+        # weight_l_target=torch.cat([padding1,weight_l_target],-1)
+        #right
+        #reference
+        representation_r=torch.cat([lr_feature[:,:,:,scale:],hr_feature[:,:,:,:-scale],distance_matrix2[:,:,:,scale:]],1)
+        weight_r=self.similarity1(representation_r)
+        weight_r=torch.cat([weight_r,padding1],-1)
 
+        #target image
+        # representation_r_target=torch.cat([lr_feature_r[:,:,:,scale:],hr_feature_r[:,:,:,:-scale],distance_matrix1[:,:,:,scale:]],1)
+        # weight_r_target=self.similarity1(representation_r_target)
+        # weight_r_target=torch.cat([weight_r_target,padding1],-1)
         #top
-        x=torch.arange(1,scale+1).float()
-        x=x.expand(scale,scale).unsqueeze(0).transpose(2,1)
-        x=x.repeat(hr_feature.shape[0],hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float().cuda()
-        
-        distance_matrix3[:,1,:,:]=(scale-x+1)
-        #distance_matrix3=distance_matrix3.unsqueeze(0)
-        #distance_matrix3[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix3[:,0,:,:],2)+torch.pow(distance_matrix3[:,1,:,:],2)).unsqueeze(0)
-        # representation_t=torch.cat([lr_feature[:,:,:-scale,:],hr_feature[:,:,scale:,:],lr_feature[:,:,:-scale,:]*hr_feature[:,:,scale:,:], \
-        #                torch.pow(lr_feature[:,:,:-scale,:]-hr_feature[:,:,scale:,:],2)],1)
+        #reference
         representation_t=torch.cat([lr_feature[:,:,:-scale,:],hr_feature[:,:,scale:,:],distance_matrix3[:,:,:-scale,:]],1)
-        weights1_t=self.similarity1(representation_t)
-        #weights2_t=self.similarity2(distance_matrix3[:,:,:-scale,:])
-        #mapping_t=torch.cat([padding2,self.fuse(torch.cat([weights1_t,weights2_t],1))],-2)
-        mapping_t=torch.cat([padding2,weights1_t],-2)
+        weight_t=self.similarity1(representation_t)
+        weight_t=torch.cat([padding2,weight_t],-2)
+        #target
+        # representation_t_target=torch.cat([lr_feature_r[:,:,:-scale,:],hr_feature_r[:,:,scale:,:],distance_matrix3[:,:,:-scale,:]],1)
+        # weight_t_target=self.similarity1(representation_t_target)
+        # weight_t_target=torch.cat([padding2,weight_t_target],-2)
         #bottom
-        
-        distance_matrix4[:,1,:,:]=x
-        #distance_matrix4=distance_matrix4.unsqueeze(0)
-        #distance_matrix4[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix4[:,0,:,:],2)+torch.pow(distance_matrix4[:,1,:,:],2)).unsqueeze(0)
-        # representation_b=torch.cat([lr_feature[:,:,scale:,:],hr_feature[:,:,:-scale,:],lr_feature[:,:,scale:,:]*hr_feature[:,:,:-scale,:], \
-        #                torch.pow(lr_feature[:,:,scale:,:]-hr_feature[:,:,:-scale,:],2)],1)
+        #reference
         representation_b=torch.cat([lr_feature[:,:,scale:,:],hr_feature[:,:,:-scale,:],distance_matrix4[:,:,scale:,:]],1)
-        weights1_b=self.similarity1(representation_b)
-        #weights2_b=self.similarity2(distance_matrix4[:,:,scale:,:])
-        #mapping_b=torch.cat([self.fuse(torch.cat([weights1_b,weights2_b],1)),padding2],-2)
-        mapping_b=torch.cat([weights1_b,padding2],-2)
+        weight_b=self.similarity1(representation_b)
+        weight_b=torch.cat([weight_b,padding2],-2)
 
-        mapping_all=torch.cat([mapping,mapping_r,mapping_l,mapping_t,mapping_b],dim=1)
-        mapping_norm=F.softmax(mapping_all, dim=1)
-        mapping_all_target=torch.cat([mapping_target,mapping_target_r,mapping_target_l],dim=1)
-        mapping_norm_target=F.softmax(mapping_all_target, dim=1)
+        #left-top
+        #reference
+        representation_lt=torch.cat([lr_feature[:,:,:-scale,:-scale],hr_feature[:,:,scale:,scale:],distance_matrix5[:,:,:-scale,:-scale]],1)
+        weight_lt=self.similarity1(representation_lt)
+        weight_lt=torch.cat([padding2,torch.cat([padding1[...,scale:,:],weight_lt],-1)],-2)
+        #target
+        # representation_l_target=torch.cat([lr_feature_r[:,:,:,:-scale],hr_feature_r[:,:,:,scale:],distance_matrix2[:,:,:,:-scale]],1)
+        # weight_l_target=self.similarity1(representation_l_target)
+        # weight_l_target=torch.cat([padding1,weight_l_target],-1)
+        #right-top
+        #reference
+        representation_rt=torch.cat([lr_feature[:,:,:-scale,scale:],hr_feature[:,:,scale:,:-scale],distance_matrix6[:,:,:-scale,scale:]],1)
+        weight_rt=self.similarity1(representation_rt)
+        weight_rt=torch.cat([padding2,torch.cat([weight_rt,padding1[...,scale:,:]],-1)],-2)
 
-        #return mapping,mapping_r,mapping_l,mapping_t,mapping_b
-        return torch.chunk(mapping_norm*mapping_all,5,dim=1),torch.chunk(mapping_norm_target*mapping_all_target,3,dim=1)
-class four_related_context_mapping(nn.Module):
-    def __init__(self):
-        super(four_related_context_mapping,self).__init__()
-        self.similarity1=similarity_measure1()
-        self.similarity2=similarity_measure2()
-        self.fuse=nn.Sequential(nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0,
-                               bias=False,dilation=1),nn.LeakyReLU(inplace=True))
-        #self.fuse.weight.data.fill_(1)
+        #target image
+        # representation_r_target=torch.cat([lr_feature_r[:,:,:,scale:],hr_feature_r[:,:,:,:-scale],distance_matrix1[:,:,:,scale:]],1)
+        # weight_r_target=self.similarity1(representation_r_target)
+        # weight_r_target=torch.cat([weight_r_target,padding1],-1)
+        #left-bottom
+        #reference
+        representation_lb=torch.cat([lr_feature[:,:,scale:,:-scale],hr_feature[:,:,:-scale:,scale:],distance_matrix7[:,:,scale:,:-scale]],1)
+        weight_lb=self.similarity1(representation_lb)
+        weight_lb=torch.cat([torch.cat([padding1[...,scale:,:],weight_lb],-1),padding2],-2)
+        #target
+        # representation_t_target=torch.cat([lr_feature_r[:,:,:-scale,:],hr_feature_r[:,:,scale:,:],distance_matrix3[:,:,:-scale,:]],1)
+        # weight_t_target=self.similarity1(representation_t_target)
+        # weight_t_target=torch.cat([padding2,weight_t_target],-2)
+        #right-bottom
+        #reference
+        representation_rb=torch.cat([lr_feature[:,:,scale:,scale:],hr_feature[:,:,:-scale,:-scale],distance_matrix8[:,:,scale:,scale:]],1)
+        weight_rb=self.similarity1(representation_rb)
+        weight_rb=torch.cat([torch.cat([weight_rb,padding1[...,:-scale,:]],-1),padding2],-2)
 
-    def forward(self, lr_feature, hr_feature):
 
-        #self.fuse.weight.data=torch.abs(self.fuse.weight.data)
-        with torch.no_grad():
-            scale=hr_feature.shape[-1]//lr_feature.shape[-1]
-            if scale%2==0:
-                x=torch.arange(-scale//2,scale//2+1).float()
-                x=torch.cat([x[:x.shape[0]//2],x[x.shape[0]//2+1:]]).unsqueeze(0)
-                distance_matrix=x.expand(scale,scale).unsqueeze(0)
-                distance_matrix=torch.cat([distance_matrix,distance_matrix.transpose(2,1)],0)
-                distance_matrix=torch.cat([distance_matrix,torch.sqrt(torch.pow(distance_matrix[0],2)+torch.pow(distance_matrix[1],2)).unsqueeze(0)],0).unsqueeze(0)
-                padding1=torch.zeros(hr_feature.shape[0],1,hr_feature.shape[2],scale).float().cuda()
-                padding2=torch.zeros(hr_feature.shape[0],1,scale,hr_feature.shape[3]).float().cuda()
-            else:
-                exit()
-            #center
-            distance_matrix=distance_matrix.repeat(hr_feature.shape[0],1,hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float().cuda()
-            distance_matrix2=distance_matrix+0
-            distance_matrix1=distance_matrix+0
-            distance_matrix3=distance_matrix+0
-            distance_matrix4=distance_matrix+0
-        lr_feature=lr_feature.unsqueeze(-1).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3],scale) \
-                                     .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],lr_feature.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2],scale,lr_feature.shape[3]*scale) \
-                                  .contiguous().view(lr_feature.shape[0],lr_feature.shape[1],lr_feature.shape[2]*scale,lr_feature.shape[3]*scale)
-        #128
-        representation=torch.cat([lr_feature,hr_feature,lr_feature*hr_feature,torch.pow(lr_feature-hr_feature,2)],1)
-        weights1=self.similarity1(representation)
-        weights2=self.similarity2(distance_matrix)
-        mapping=self.fuse(torch.cat([weights1,weights2],1))
-        #right
-        x=torch.arange(1,scale+1).float()
-        x=x.expand(scale,scale).unsqueeze(0)
-        x=x.repeat(hr_feature.shape[0],hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float().cuda()
-        
-        distance_matrix1[:,0,:,:]=scale-x+1
-        distance_matrix1[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix1[:,0,:,:],2)+torch.pow(distance_matrix1[:,1,:,:],2)).unsqueeze(0)
-        representation_r=torch.cat([lr_feature[:,:,:,scale:],hr_feature[:,:,:,:-scale],lr_feature[:,:,:,scale:]*hr_feature[:,:,:,:-scale], \
-                       torch.pow(lr_feature[:,:,:,scale:]-hr_feature[:,:,:,:-scale],2)],1)
-        weights1_r=self.similarity1(representation_r)
-        weights2_r=self.similarity2(distance_matrix1[:,:,:,scale:])
-        #print(padding.shape)
-        mapping_r=torch.cat([self.fuse(torch.cat([weights1_r,weights2_r],1)),padding1],-1)
-        #left
-        distance_matrix2[:,0,:,:]=x
-        distance_matrix2[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix2[:,0,:,:],2)+torch.pow(distance_matrix2[:,1,:,:],2)).unsqueeze(0)
-        representation_l=torch.cat([lr_feature[:,:,:,:-scale],hr_feature[:,:,:,scale:],lr_feature[:,:,:,:-scale]*hr_feature[:,:,:,scale:], \
-                       torch.pow(lr_feature[:,:,:,:-scale]-hr_feature[:,:,:,scale:],2)],1)
-        weights1_l=self.similarity1(representation_l)
-        weights2_l=self.similarity2(distance_matrix2[:,:,:,:-scale])
-        mapping_l=torch.cat([padding1,self.fuse(torch.cat([weights1_l,weights2_l],1))],-1)
-        #top
-        x=torch.arange(1,scale+1).float()
-        x=x.expand(scale,scale).unsqueeze(0).transpose(2,1)
-        x=x.repeat(hr_feature.shape[0],hr_feature.shape[-2]//scale,hr_feature.shape[-1]//scale).float().cuda()
-        
-        distance_matrix3[:,1,:,:]=(scale-x+1)
-        distance_matrix3[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix3[:,0,:,:],2)+torch.pow(distance_matrix3[:,1,:,:],2)).unsqueeze(0)
-        representation_t=torch.cat([lr_feature[:,:,:-scale,:],hr_feature[:,:,scale:,:],lr_feature[:,:,:-scale,:]*hr_feature[:,:,scale:,:], \
-                       torch.pow(lr_feature[:,:,:-scale,:]-hr_feature[:,:,scale:,:],2)],1)
-        weights1_t=self.similarity1(representation_t)
-        weights2_t=self.similarity2(distance_matrix3[:,:,:-scale,:])
-        mapping_t=torch.cat([padding2,self.fuse(torch.cat([weights1_t,weights2_t],1))],-2)
-        #bottom
-        
-        distance_matrix4[:,1,:,:]=x
-        distance_matrix4[:,2,:,:]=torch.sqrt(torch.pow(distance_matrix4[:,0,:,:],2)+torch.pow(distance_matrix4[:,1,:,:],2)).unsqueeze(0)
-        representation_b=torch.cat([lr_feature[:,:,scale:,:],hr_feature[:,:,:-scale,:],lr_feature[:,:,scale:,:]*hr_feature[:,:,:-scale,:], \
-                       torch.pow(lr_feature[:,:,scale:,:]-hr_feature[:,:,:-scale,:],2)],1)
-        weights1_b=self.similarity1(representation_b)
-        weights2_b=self.similarity2(distance_matrix4[:,:,scale:,:])
-        mapping_b=torch.cat([self.fuse(torch.cat([weights1_b,weights2_b],1)),padding2],-2)
+        weight_all=torch.cat([weight,weight_l,weight_r,weight_t,weight_b,weight_lt,weight_rt,weight_lb,weight_rb],dim=1)
+        weight_norm=F.softmax(weight_all, dim=1)
+        #weight_fuse=F.softmax(weight_norm*weight_all)
+        #target
+        # representation_b_target=torch.cat([lr_feature_r[:,:,scale:,:],hr_feature_r[:,:,:-scale,:],distance_matrix4[:,:,scale:,:]],1)
+        # weight_b_target=self.similarity1(representation_b_target)
+        # weight_b_target=torch.cat([weight_b_target,padding2],-2)
 
-        mapping_all=torch.cat([mapping,mapping_r,mapping_l,mapping_t,mapping_b],dim=1)
-        mapping_norm=F.softmax(mapping_all, dim=1)
-        #return mapping,mapping_r,mapping_l,mapping_t,mapping_b
-        return torch.chunk(mapping_norm*mapping_all,5,dim=1)
+        # weight_all=torch.cat([weight,weight_r,weight_l,weight_t,weight_b],dim=1)
+        # weight_norm=F.softmax(weight_all, dim=1)
+        # weight_all_target=torch.cat([weight_target,weight_r_target,weight_l_target,weight_t_target,weight_b_target],dim=1)
+        # weight_norm_target=F.softmax(weight_all_target, dim=1)
+
+        # return weight*weight_norm[:,0:1,:,:],weight_target*weight_norm_target[:,0:1,:,:], \
+        #         weight_r*weight_norm[:,1:2,:,:],weight_r_target*weight_norm_target[:,1:2,:,:], \
+        #         weight_l*weight_norm[:,2:3,:,:],weight_l_target*weight_norm_target[:,2:3,:,:], \
+        #         weight_t*weight_norm[:,3:4,:,:],weight_t_target*weight_norm_target[:,3:4,:,:], \
+        #         weight_b*weight_norm[:,4:5,:,:],weight_b_target*weight_norm_target[:,4:5,:,:]
+        # return  self.sigmoid(weight)*weight_norm[:,0:1,...], \
+        #         self.sigmoid(weight_l)*weight_norm[:,1:2,...], \
+        #         self.sigmoid(weight_r)*weight_norm[:,2:3,...], \
+        #         self.sigmoid(weight_t)*weight_norm[:,3:4,...], \
+        #         self.sigmoid(weight_b)*weight_norm[:,4:5,...],\
+        #         self.sigmoid(weight_lt)*weight_norm[:,5:6,...], \
+        #         self.sigmoid(weight_rt)*weight_norm[:,6:7,...], \
+        #         self.sigmoid(weight_lb)*weight_norm[:,7:8,...], \
+        #         self.sigmoid(weight_rb)*weight_norm[:,8:9,...]
+        #print(torch.mean(torch.max(weight_norm,dim=1)[0]),torch.max(weight_all,dim=1)[0])
+        #print(torch.mean(torch.topk(weight_all,3,dim=1)[0].float()),torch.mean(torch.topk(weight_all,3,dim=1)[1].float()))
+        #print(torch.mean(torch.topk(weight_all,1,dim=1)[0].float()),torch.mean(torch.topk(weight_all,1,dim=1)[1].float()))
+        if torch.mean(torch.topk(weight_all,1,dim=1)[0].float())<0:
+            print(torch.mean(torch.topk(weight_all,3,dim=1)[0].float()),torch.mean(torch.topk(weight_all,3,dim=1)[1].float()))
+            print(torch.mean(torch.topk(weight_all,1,dim=1)[0].float()),torch.mean(torch.topk(weight_all,1,dim=1)[1].float()))
+        #print(torch.mean(torch.min(weight_norm,dim=1)[0]),torch.min(weight_all,dim=1)[0])
+        return  weight_norm[:,0:1,...], \
+                weight_norm[:,1:2,...], \
+                weight_norm[:,2:3,...], \
+                weight_norm[:,3:4,...], \
+                weight_norm[:,4:5,...],\
+                weight_norm[:,5:6,...], \
+                weight_norm[:,6:7,...], \
+                weight_norm[:,7:8,...], \
+                weight_norm[:,8:9,...]
 class cmfsm(nn.Module):
 
 
@@ -698,7 +632,7 @@ class cmfsm(nn.Module):
             convbn_3d(32, 32, 3, 1, 1),
             nn.ReLU(inplace=True),
             nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
-        self.mapping_matrix=six_related_context_mapping()
+        self.mapping_matrix=eight_related_context_mapping()
 
 
         for m in self.modules():
@@ -719,14 +653,16 @@ class cmfsm(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, left, right):
-
+        start=time.time()
         refimg_fea, half,all_feature= self.feature_extraction(left)
         targetimg_fea, _ ,all_feature_right= self.feature_extraction(right)
         scale=all_feature.shape[-1]//refimg_fea.shape[-1]
         #mapping,mapping_r,mapping_l,mapping_t,mapping_b=self.mapping_matrix(refimg_fea,all_feature)
         #target
-        [mapping,mapping_r,mapping_l,mapping_t,mapping_b],[mapping_target,mapping_target_r,mapping_target_l]=self.mapping_matrix(refimg_fea,all_feature,targetimg_fea,all_feature_right)
-        #mapping=self.mapping_matrix(refimg_fea,all_feature)
+        #[mapping,mapping_r,mapping_l,mapping_t,mapping_b],[mapping_target,mapping_target_r,mapping_target_l]=self.mapping_matrix(refimg_fea,all_feature,targetimg_fea,all_feature_right)
+        #time=0.1s
+        weight,weight_l,weight_r,weight_t,weight_b,weight_lt,weight_rt,weight_lb,weight_rb=self.mapping_matrix(refimg_fea,all_feature,targetimg_fea,all_feature_right)
+        #mapping,mapping_target=self.mapping_matrix(refimg_fea,all_feature,targetimg_fea,all_feature_right)
         # matching
         cost = Variable(
             torch.FloatTensor(refimg_fea.size()[0],
@@ -734,7 +670,7 @@ class cmfsm(nn.Module):
                               refimg_fea.size()[2],
                               refimg_fea.size()[3]).zero_()).cuda()
 
-        for i in range(self.maxdisp // 4):
+        for i in range(self.maxdisp // scale):
             if i > 0:
                 cost[:, :refimg_fea.size()[1], i, :, i:] = refimg_fea[:, :, :,
                                                                       i:]
@@ -759,94 +695,83 @@ class cmfsm(nn.Module):
         cost1 = self.classif1(out1)
         #cost2 = self.classif2(out2) + cost1
         #cost3 = self.classif3(out3) + cost2
+        #torch.Size([1, 1, 256, 512])
+        # weight_all=torch.cat([weight,weight_r,weight_l,weight_t,weight_b],dim=1)
+        # weight_norm=F.softmax(weight_all, dim=1)
 
-
-
-
+        # t=time.time()
         cost1 = torch.squeeze(cost1, 1)
-        cost1=cost1.unsqueeze(-1).expand(cost1.shape[0],cost1.shape[1],cost1.shape[2],cost1.shape[3],scale) \
-                                     .contiguous().view(cost1.shape[0],cost1.shape[1],cost1.shape[2],cost1.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(cost1.shape[0],cost1.shape[1],cost1.shape[2],scale,cost1.shape[3]*scale) \
-                                  .contiguous().view(cost1.shape[0],cost1.shape[1],cost1.shape[2]*scale,cost1.shape[3]*scale) \
-                                  .unsqueeze(-3).expand(cost1.shape[0],cost1.shape[1],scale,cost1.shape[2]*scale,cost1.shape[3]*scale) \
-                                  .contiguous().view(cost1.shape[0],cost1.shape[1]*scale,cost1.shape[2]*scale,cost1.shape[3]*scale)
-        fused_cost=cost1*mapping
-        fused_cost[...,:-scale]=fused_cost[...,:-scale]+cost1[...,scale:]*mapping_r[...,:-scale]
-        fused_cost[...,scale:]=fused_cost[...,scale:]+cost1[...,:-scale]*mapping_l[...,scale:]
-        fused_cost[...,scale:,:]=fused_cost[...,scale:,:]+cost1[...,:-scale,:]*mapping_t[...,scale:,:]
-        fused_cost[...,:-scale,:]=fused_cost[...,:-scale,:]+cost1[...,scale:,:]*mapping_b[...,:-scale,:]
-        #target
-        #print(cost1.shape)
-        #exit()
-        mapping_target_volume=torch.ones_like(cost1)
-        mapping_target_r_volume=torch.ones_like(cost1)
-        mapping_target_l_volume=torch.ones_like(cost1)
-        for i in range(self.maxdisp):
-            if i>0:
-                #print(mapping_target_volume[:,i,:,i:].shape,mapping_target[:,0,:,:-i].shape)
-                mapping_target_volume[:,i,:,i:]=mapping_target[:,0,:,:-i]
-                mapping_target_r_volume[:,i,:,i:]=mapping_target_r[:,0,:,:-i]
-                mapping_target_l_volume[:,i,:,i:]=mapping_target_l[:,0,:,:-i]
-            else:
-                mapping_target_volume[:,i,:,i:]=mapping_target[:,0,:,:]
-                mapping_target_r_volume[:,i,:,i:]=mapping_target_r[:,0,:,:]
-                mapping_target_l_volume[:,i,:,i:]=mapping_target_l[:,0,:,:]
 
-        fused_cost_target=fused_cost*mapping_target_volume
-        fused_cost_target[:,:-scale,:,:]=fused_cost_target[:,:-scale,:,:]+fused_cost[:,scale:,:,:] *mapping_target_l_volume[:,:-scale,:,:]
-        fused_cost_target[:,scale:,:,:] =fused_cost_target[:,scale:,:,:] +fused_cost[:,:-scale,:,:]*mapping_target_r_volume[:,scale:,:,:]
+        pred1 = F.softmax(cost1, dim=1)
+        pred1 = disparityregression(self.maxdisp//scale)(pred1)
+        #torch.Size([1, 64, 128])
 
-        pred1 = F.softmax(fused_cost_target, dim=1)
-        pred1 = disparityregression(self.maxdisp)(pred1)
+        pred1=scale*pred1.unsqueeze(-1).expand(pred1.shape[0],pred1.shape[1],pred1.shape[2],scale) \
+                                     .contiguous().view(pred1.shape[0],pred1.shape[1],pred1.shape[2]*scale) \
+                                  .unsqueeze(-2).expand(pred1.shape[0],pred1.shape[1],scale,pred1.shape[2]*scale) \
+                                  .contiguous().view(pred1.shape[0],pred1.shape[1]*scale,pred1.shape[2]*scale)
 
+        pred1_map=pred1*weight
+        pred1_map[...,scale:]+=pred1[...,:-scale]*weight_l[...,scale:]
+        pred1_map[...,:-scale]+=pred1[...,scale:]*weight_r[...,:-scale]
+        pred1_map[...,scale:,:]+=pred1[...,:-scale,:]*weight_t[...,scale:,:]
+        pred1_map[...,:-scale,:]+=pred1[...,scale:,:]*weight_b[...,:-scale,:]
 
+        pred1_map[...,scale:,scale:]+=pred1[...,:-scale,:-scale]*weight_lt[...,scale:,scale:]
+        pred1_map[...,scale:,:-scale]+=pred1[...,:-scale,scale:]*weight_rt[...,scale:,:-scale]
+        pred1_map[...,:-scale,scale:]+=pred1[...,scale:,:-scale]*weight_lb[...,:-scale,scale:]
+        pred1_map[...,:-scale,:-scale]+=pred1[...,scale:,scale:]*weight_rb[...,:-scale,:-scale]
         cost2 = self.classif2(out2)
-        cost2 = torch.squeeze(cost2, 1)
-        cost2=cost2.unsqueeze(-1).expand(cost2.shape[0],cost2.shape[1],cost2.shape[2],cost2.shape[3],scale) \
-                                     .contiguous().view(cost2.shape[0],cost2.shape[1],cost2.shape[2],cost2.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(cost2.shape[0],cost2.shape[1],cost2.shape[2],scale,cost2.shape[3]*scale) \
-                                  .contiguous().view(cost2.shape[0],cost2.shape[1],cost2.shape[2]*scale,cost2.shape[3]*scale) \
-                                  .unsqueeze(-3).expand(cost2.shape[0],cost2.shape[1],scale,cost2.shape[2]*scale,cost2.shape[3]*scale) \
-                                  .contiguous().view(cost2.shape[0],cost2.shape[1]*scale,cost2.shape[2]*scale,cost2.shape[3]*scale)+cost1
-        fused_cost=cost2*mapping
-        fused_cost[...,:-scale]=fused_cost[...,:-scale]+cost2[...,scale:]*mapping_r[...,:-scale]
-        fused_cost[...,scale:]=fused_cost[...,scale:]+cost2[...,:-scale]*mapping_l[...,scale:]
-        fused_cost[...,scale:,:]=fused_cost[...,scale:,:]+cost2[...,:-scale,:]*mapping_t[...,scale:,:]
-        fused_cost[...,:-scale,:]=fused_cost[...,:-scale,:]+cost2[...,scale:,:]*mapping_b[...,:-scale,:]
-        #target
-        fused_cost_target=fused_cost*mapping_target_volume
-        fused_cost_target[:,:-scale,:,:]=fused_cost_target[:,:-scale,:,:]+fused_cost[:,scale:,:,:] *mapping_target_l_volume[:,:-scale,:,:]
-        fused_cost_target[:,scale:,:,:] =fused_cost_target[:,scale:,:,:] +fused_cost[:,:-scale,:,:]*mapping_target_r_volume[:,scale:,:,:]
-        pred2 = F.softmax(fused_cost_target, dim=1)
-        pred2 = disparityregression(self.maxdisp)(pred2)
+        cost2 = torch.squeeze(cost2, 1)+cost1
+
+        pred2 = F.softmax(cost2, dim=1)
+        pred2 = disparityregression(self.maxdisp//scale)(pred2)
+
+        pred2=scale*pred2.unsqueeze(-1).expand(pred2.shape[0],pred2.shape[1],pred2.shape[2],scale) \
+                                     .contiguous().view(pred2.shape[0],pred2.shape[1],pred2.shape[2]*scale) \
+                                  .unsqueeze(-2).expand(pred2.shape[0],pred2.shape[1],scale,pred2.shape[2]*scale) \
+                                  .contiguous().view(pred2.shape[0],pred2.shape[1]*scale,pred2.shape[2]*scale)
+
+        pred2_map=pred2*weight
+        pred2_map[...,scale:]+=pred2[...,:-scale]*weight_l[...,scale:]
+        pred2_map[...,:-scale]+=pred2[...,scale:]*weight_r[...,:-scale]
+        pred2_map[...,scale:,:]+=pred2[...,:-scale,:]*weight_t[...,scale:,:]
+        pred2_map[...,:-scale,:]+=pred2[...,scale:,:]*weight_b[...,:-scale,:]
+
+        pred2_map[...,scale:,scale:]+=pred2[...,:-scale,:-scale]*weight_lt[...,scale:,scale:]
+        pred2_map[...,scale:,:-scale]+=pred2[...,:-scale,scale:]*weight_rt[...,scale:,:-scale]
+        pred2_map[...,:-scale,scale:]+=pred2[...,scale:,:-scale]*weight_lb[...,:-scale,scale:]
+        pred2_map[...,:-scale,:-scale]+=pred2[...,scale:,scale:]*weight_rb[...,:-scale,:-scale]
+
 
         cost3 = self.classif3(out3)
-        cost3 = torch.squeeze(cost3, 1)
-        cost3=cost3.unsqueeze(-1).expand(cost3.shape[0],cost3.shape[1],cost3.shape[2],cost3.shape[3],scale) \
-                                     .contiguous().view(cost3.shape[0],cost3.shape[1],cost3.shape[2],cost3.shape[3]*scale) \
-                                  .unsqueeze(-2).expand(cost3.shape[0],cost3.shape[1],cost3.shape[2],scale,cost3.shape[3]*scale) \
-                                  .contiguous().view(cost3.shape[0],cost3.shape[1],cost3.shape[2]*scale,cost3.shape[3]*scale) \
-                                  .unsqueeze(-3).expand(cost3.shape[0],cost3.shape[1],scale,cost3.shape[2]*scale,cost3.shape[3]*scale) \
-                                  .contiguous().view(cost3.shape[0],cost3.shape[1]*scale,cost3.shape[2]*scale,cost3.shape[3]*scale)+cost2
-        #cost3=cost3*mapping
-        fused_cost=cost3*mapping
-        # print(mapping.squeeze()[100:112,100:112])
-        # print(torch.mean(fused_cost/cost3-1).item())
-        fused_cost[...,:-scale]=fused_cost[...,:-scale]+cost3[...,scale:]*mapping_r[...,:-scale]
-        #print(torch.mean(fused_cost/cost3-1).item())
-        fused_cost[...,scale:]=fused_cost[...,scale:]+cost3[...,:-scale]*mapping_l[...,scale:]
-        #print(torch.mean(fused_cost/cost3-1).item())
-        fused_cost[...,scale:,:]=fused_cost[...,scale:,:]+cost3[...,:-scale,:]*mapping_t[...,scale:,:]
-        #print(torch.mean(fused_cost/cost3-1).item())
-        fused_cost[...,:-scale,:]=fused_cost[...,:-scale,:]+cost3[...,scale:,:]*mapping_b[...,:-scale,:]
-        #target
-        fused_cost_target=fused_cost*mapping_target_volume
-        fused_cost_target[:,:-scale,:,:]=fused_cost_target[:,:-scale,:,:]+fused_cost[:,scale:,:,:] *mapping_target_l_volume[:,:-scale,:,:]
-        fused_cost_target[:,scale:,:,:] =fused_cost_target[:,scale:,:,:] +fused_cost[:,:-scale,:,:]*mapping_target_r_volume[:,scale:,:,:]
-        pred3 = F.softmax(fused_cost_target, dim=1)
-        pred3 = disparityregression(self.maxdisp)(pred3)
+        cost3 = torch.squeeze(cost3, 1)+cost2
+        
+        pred3 = F.softmax(cost3, dim=1)
+        # print(torch.max(pred3,dim=1)[0])
+        # print(torch.min(pred3,dim=1)[0])
+        pred3 = disparityregression(self.maxdisp//scale)(pred3)
+
+        pred3=scale*pred3.unsqueeze(-1).expand(pred3.shape[0],pred3.shape[1],pred3.shape[2],scale) \
+                                     .contiguous().view(pred3.shape[0],pred3.shape[1],pred3.shape[2]*scale) \
+                                  .unsqueeze(-2).expand(pred3.shape[0],pred3.shape[1],scale,pred3.shape[2]*scale) \
+                                  .contiguous().view(pred3.shape[0],pred3.shape[1]*scale,pred3.shape[2]*scale)
+
+        pred3_map=pred3*weight
+        pred3_map[...,scale:]+=pred3[...,:-scale]*weight_l[...,scale:]
+        pred3_map[...,:-scale]+=pred3[...,scale:]*weight_r[...,:-scale]
+        pred3_map[...,scale:,:]+=pred3[...,:-scale,:]*weight_t[...,scale:,:]
+        pred3_map[...,:-scale,:]+=pred3[...,scale:,:]*weight_b[...,:-scale,:]
+
+        pred3_map[...,scale:,scale:]+=pred3[...,:-scale,:-scale]*weight_lt[...,scale:,scale:]
+        pred3_map[...,scale:,:-scale]+=pred3[...,:-scale,scale:]*weight_rt[...,scale:,:-scale]
+        pred3_map[...,:-scale,scale:]+=pred3[...,scale:,:-scale]*weight_lb[...,:-scale,scale:]
+        pred3_map[...,:-scale,:-scale]+=pred3[...,scale:,scale:]*weight_rb[...,:-scale,:-scale]
+
+
         #pred3 = self.srr(pred3, left, refimg_fea, half)
-        return pred1, pred2, pred3
+        #print(time.time()-start)
+        return pred1_map, pred2_map, pred3_map
         #return pred3
 
 

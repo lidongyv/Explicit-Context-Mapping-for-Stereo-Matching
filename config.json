@@ -7,8 +7,16 @@
   {
     "data_path": "/home/lidong/Documents/datasets/flying3d/"
   },
+    "kitti15":
+  {
+    "data_path": "/home/lidong/Documents/datasets/kitti15/"
+  },
+    "kitti12":
+  {
+    "data_path": "/home/lidong/Documents/datasets/kitti12/"
+  },
     "kitti":
   {
-    "data_path": "/home/lidong/Documents/datasets/kitti/"
+    "data_path": "/home/lidong/Documents/datasets/kitti15/"
   }
 }
